@@ -137,7 +137,7 @@ test_setup() {
  	    /etc/services sleep mount chmod
  	type -P portmap >/dev/null && dracut_install portmap
  	type -P rpcbind >/dev/null && dracut_install rpcbind
- 	[ -f /etc/netconfig ] && dracut_install /etc/netconfig 
+ 	[ -f /etc/netconfig ] && dracut_install /etc/netconfig
  	type -P dhcpd >/dev/null && dracut_install dhcpd
  	[ -x /usr/sbin/dhcpd3 ] && inst /usr/sbin/dhcpd3 /usr/sbin/dhcpd
  	instmods nfsd sunrpc ipv6
@@ -190,11 +190,11 @@ test_setup() {
  	. $basedir/dracut-functions
  	dracut_install sh shutdown poweroff stty cat ps ln ip \
          	/lib/terminfo/l/linux mount dmesg mkdir \
- 		cp ping grep
+ 		cp ping grep ls
  	inst ./client-init /sbin/init
  	(
  	    cd "$initdir"
- 	    mkdir -p dev sys proc etc
+ 	    mkdir -p dev sys proc etc run
  	    mkdir -p var/lib/nfs/rpc_pipefs
 	)
  	inst /etc/nsswitch.conf /etc/nsswitch.conf

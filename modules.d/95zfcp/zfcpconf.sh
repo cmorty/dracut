@@ -6,22 +6,22 @@
 # deviceno   WWPN   FCPLUN
 #
 # Example:
-# 0.0.4000 0x5005076300C213e9 0x5022000000000000 
-# 0.0.4001 0x5005076300c213e9 0x5023000000000000 
+# 0.0.4000 0x5005076300C213e9 0x5022000000000000
+# 0.0.4001 0x5005076300c213e9 0x5023000000000000
 #
 #
 # manual setup:
 # modprobe zfcp
 # echo 1    > /sys/bus/ccw/drivers/zfcp/0.0.4000/online
 # echo LUN  > /sys/bus/ccw/drivers/zfcp/0.0.4000/WWPN/unit_add
-# 
+#
 # Example:
 # modprobe zfcp
 # echo 1                  > /sys/bus/ccw/drivers/zfcp/0.0.4000/online
 # echo 0x5022000000000000 > /sys/bus/ccw/drivers/zfcp/0.0.4000/0x5005076300c213e9/unit_add
 
 CONFIG=/etc/zfcp.conf
-PATH=/bin:/usr/bin:/sbin:/usr/sbin
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
 if [ -f "$CONFIG" ]; then
     if [ ! -d /sys/bus/ccw/drivers/zfcp ]; then

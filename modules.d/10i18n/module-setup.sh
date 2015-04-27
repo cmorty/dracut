@@ -11,6 +11,7 @@ depends() {
 }
 
 install() {
+    [ -x /lib/systemd/systemd-vconsole-setup ] && dracut_install /lib/systemd/systemd-vconsole-setup
     KBDSUBDIRS=consolefonts,consoletrans,keymaps,unimaps
     DEFAULT_FONT=LatArCyrHeb-16
     I18N_CONF="/etc/locale.conf"
@@ -177,12 +178,12 @@ install() {
         for kbddir in ${kbddir} /usr/lib/kbd /lib/kbd /usr/share /usr/share/kbd
         do
             [[ -d "${kbddir}" ]] && \
-                for dir in ${KBDSUBDIRS//,/ } 
+                for dir in ${KBDSUBDIRS//,/ }
             do
                 [[ -d "${kbddir}/${dir}" ]] && continue
                 false
             done && break
-            kbddir='' 
+            kbddir=''
         done
 
         [[ ${kbddir} ]] || {

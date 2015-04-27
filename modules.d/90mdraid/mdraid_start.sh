@@ -11,7 +11,7 @@ mdadm -Is --run 2>&1 | vinfo
 
 # there could still be some leftover devices
 # which have had a container added
-for md in /dev/md[0-9]* /dev/md/*; do 
+for md in /dev/md[0-9]* /dev/md/*; do
     [ -b "$md" ] || continue
     udevinfo="$(udevadm info --query=env --name=$md)"
     strstr "$udevinfo" "MD_UUID=" && continue
@@ -21,6 +21,6 @@ for md in /dev/md[0-9]* /dev/md/*; do
 done
 unset udevinfo
 
-ln -s /sbin/mdraid-cleanup $hookdir/pre-pivot/30-mdraid-cleanup.sh 2>/dev/null
-ln -s /sbin/mdraid-cleanup $hookdir/pre-pivot/31-mdraid-cleanup.sh 2>/dev/null
+ln -s $(command -v mdraid-cleanup) $hookdir/pre-pivot/30-mdraid-cleanup.sh 2>/dev/null
+ln -s $(command -v mdraid-cleanup) $hookdir/pre-pivot/31-mdraid-cleanup.sh 2>/dev/null
 udevadm control --start-exec-queue

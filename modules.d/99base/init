@@ -10,32 +10,30 @@
 
 wait_for_loginit()
 {
-    if getargbool 0 rd.debug -y rdinitdebug -y rdnetdebug; then
-        set +x
-        echo "DRACUT_LOG_END"
-        exec 0<>/dev/console 1<>/dev/console 2<>/dev/console
+    set +x
+    [ "$RD_DEBUG" = "yes" ] || return
+    [ -e /run/initramfs/loginit.pipe ] || return
+    echo "DRACUT_LOG_END"
+    exec 0<>/dev/console 1<>/dev/console 2<>/dev/console
         # wait for loginit
-        i=0
-        while [ $i -lt 10 ]; do 
-            if [ -e /run/initramfs/init.log.end ]; then
-                j=$(jobs)
-                [ -z "$j" ] && break
-                [ -z "${j##*Running*}" ] || break
-            fi
-            sleep 0.1
-            i=$(($i+1))
-        done    
-        [ $i -eq 10 ] && kill %1 >/dev/null 2>&1
+    i=0
+    while [ $i -lt 10 ]; do
+        if [ ! -e /run/initramfs/loginit.pipe ]; then
+            j=$(jobs)
+            [ -z "$j" ] && break
+            [ -z "${j##*Running*}" ] || break
+        fi
+        sleep 0.1
+        i=$(($i+1))
+    done
 
-        while pidof -x /sbin/loginit >/dev/null 2>&1; do
-            for pid in $(pidof -x /sbin/loginit); do
-                kill $HARD $pid >/dev/null 2>&1
-            done
-            HARD="-9"
-        done
-        set -x
+    if [ $i -eq 10 ]; then
+        kill %1 >/dev/null 2>&1
+        kill $(while read line;do echo $line;done</run/initramfs/loginit.pid)
     fi
-    rm -f /run/initramfs/initlog.pipe /run/initramfs/init.log.end
+
+    set -x
+    rm -f /run/initramfs/loginit.pipe /run/initramfs/loginit.pid
 }
 
 emergency_shell()
@@ -43,7 +41,7 @@ emergency_shell()
     set +e
     if [ "$1" = "-n" ]; then
         _rdshell_name=$2
-        shift 2 
+        shift 2
     else
         _rdshell_name=dracut
     fi
@@ -52,7 +50,7 @@ emergency_shell()
     source_hook emergency
     echo
     wait_for_loginit
-    [ -e /.die ] && exit 1
+    [ -e /run/initramfs/.die ] && exit 1
     if getargbool 1 rd.shell -y rdshell || getarg rd.break rdbreak; then
         echo "Dropping to debug shell."
         echo
@@ -66,20 +64,25 @@ emergency_shell()
     fi
 }
 
-OLD_PATH="$PATH"
-export PATH=/sbin:/bin:/usr/sbin:/usr/bin
 NEWROOT="/sysroot"
+[ -d $NEWROOT ] || mkdir -p -m 0755 $NEWROOT
 
 trap "emergency_shell Signal caught!" 0
+OLDPATH=$PATH
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
-RDDEBUG=""
+RD_DEBUG=""
 . /lib/dracut-lib.sh
 
 [ -c /dev/null ] || mknod -m 0666 /dev/null c 1 3
 
 # mount some important things
-mount -t proc -o nosuid,noexec,nodev /proc /proc >/dev/null 2>&1
-mount -t sysfs -o nosuid,noexec,nodev /sys /sys >/dev/null 2>&1
+[ ! -d /proc/self ] && \
+    mount -t proc -o nosuid,noexec,nodev proc /proc >/dev/null 2>&1
+
+[ ! -d /sys/kernel ] && \
+    mount -t sysfs -o nosuid,noexec,nodev sysfs /sys >/dev/null 2>&1
 
 if [ -x /lib/systemd/systemd-timestamp ]; then
     RD_TIMESTAMP=$(/lib/systemd/systemd-timestamp)
@@ -88,11 +91,19 @@ else
     unset _tmp
 fi
 
-if [ ! -c /dev/ptmx ]; then
+setdebug
+
+if [ "$RD_DEBUG" = "yes" ]; then
+    getarg quiet && DRACUT_QUIET="yes"
+    a=$(getarg loglevel=)
+    [ -n "$a" ] && [ $a -ge 8 ] && unset DRACUT_QUIET
+fi
+
+if ! ismounted /dev; then
     # try to mount devtmpfs
-    if ! mount -t devtmpfs -o mode=0755,nosuid udev /dev >/dev/null 2>&1; then
+    if ! mount -t devtmpfs -o mode=0755,nosuid devtmpfs /dev >/dev/null 2>&1; then
         # if it failed fall back to normal tmpfs
-        mount -t tmpfs -o mode=0755,nosuid udev /dev >/dev/null 2>&1 
+        mount -t tmpfs -o mode=0755,nosuid tmpfs /dev >/dev/null 2>&1
         # Make some basic devices first, let udev handle the rest
         mknod -m 0666 /dev/null c 1 3
         mknod -m 0666 /dev/ptmx c 5 2
@@ -102,47 +113,49 @@ if [ ! -c /dev/ptmx ]; then
 fi
 
 # prepare the /dev directory
-ln -s /proc/self/fd /dev/fd >/dev/null 2>&1
-ln -s /proc/self/fd/0 /dev/stdin >/dev/null 2>&1
-ln -s /proc/self/fd/1 /dev/stdout >/dev/null 2>&1
-ln -s /proc/self/fd/2 /dev/stderr >/dev/null 2>&1
-mkdir -m 0755 /dev/shm /dev/pts /run 
-mount -t devpts -o gid=5,mode=620,noexec,nosuid devpts /dev/pts >/dev/null 2>&1
-mount -t tmpfs -o mode=1777,nosuid,nodev  tmpfs /dev/shm >/dev/null 2>&1
-# create /run which will obsolete /var/run
-mount -t tmpfs -o mode=0755,nodev,noexec,nosuid tmpfs /run >/dev/null 2>&1
+[ ! -h /dev/fd ] && ln -s /proc/self/fd /dev/fd >/dev/null 2>&1
+[ ! -h /dev/stdin ] && ln -s /proc/self/fd/0 /dev/stdin >/dev/null 2>&1
+[ ! -h /dev/stdout ] && ln -s /proc/self/fd/1 /dev/stdout >/dev/null 2>&1
+[ ! -h /dev/stderr ] && ln -s /proc/self/fd/2 /dev/stderr >/dev/null 2>&1
 
-mkdir -m 0755 /run/initramfs
+if ! ismounted /dev/pts; then
+    mkdir -m 0755 /dev/pts
+    mount -t devpts -o gid=5,mode=620,noexec,nosuid devpts /dev/pts >/dev/null 2>&1
+fi
+
+if ! ismounted /dev/shm; then
+    mkdir -m 0755 /dev/shm
+    mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /dev/shm >/dev/null 2>&1
+fi
+
+if ! ismounted /run; then
+    mkdir -m 0755 /newrun
+    mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /newrun >/dev/null 2>&1
+    cp -a -t /newrun /run/*
+    mount --move /newrun /run
+    rm -fr /newrun
+fi
+
+[ -d /run/initramfs ] || mkdir -p -m 0755 /run/initramfs
 
 UDEVVERSION=$(udevadm --version)
 if [ $UDEVVERSION -gt 166 ]; then
     # newer versions of udev use /run/udev/rules.d
-    mkdir -m 0755 /run/udev /run/udev/rules.d  
     export UDEVRULESD=/run/udev/rules.d
+    [ -d /run/udev ] || mkdir -p -m 0755 /run/udev
+    [ -d $UDEVRULESD ] || mkdir -p -m 0755 $UDEVRULESD
 else
-    mkdir -m 0755 /dev/.udev /dev/.udev/rules.d  
+    mkdir -m 0755 /dev/.udev /dev/.udev/rules.d
     export UDEVRULESD=/dev/.udev/rules.d
 fi
 
-[ -e /var/run ] &&  mv /var/run /var/run.bak
-[ -e /var/lock ] &&  mv /var/lock /var/lock.bak
-ln -fs /run /var/run
-mkdir -m 0755 /run/lock
-ln -fs /run/lock /var/lock
-# copy over any possible directory structure
-cp -ar /var/run.bak/* /run/ 2>/dev/null
-cp -ar /var/lock.bak/* /run/lock/ 2>/dev/null
-
-if getargbool 0 rd.debug -y rdinitdebug -y rdnetdebug; then
-    getarg quiet && DRACUT_QUIET="yes"
-    mkfifo /run/initramfs/initlog.pipe
-    /sbin/loginit $DRACUT_QUIET </run/initramfs/initlog.pipe >/dev/console 2>&1 &
-    exec >/run/initramfs/initlog.pipe 2>&1
+if [ "$RD_DEBUG" = "yes" ]; then
+    mkfifo /run/initramfs/loginit.pipe
+    loginit $DRACUT_QUIET </run/initramfs/loginit.pipe >/dev/console 2>&1 &
+    exec >/run/initramfs/loginit.pipe 2>&1
 else
     exec 0<>/dev/console 1<>/dev/console 2<>/dev/console
 fi
-
-setdebug
 
 source_conf /etc/conf.d
 
@@ -178,8 +191,9 @@ if [ $UDEVVERSION -lt 140 ]; then
     UDEV_QUEUE_EMPTY="udevadm settle --timeout=1"
 fi
 
-getargbool 0 rd.udev.info -y rdudevinfo && udevadm control $UDEV_LOG_PRIO_ARG=info
-getargbool 0 rd.udev.debug -y rdudevdebug && udevadm control $UDEV_LOG_PRIO_ARG=debug
+getargbool 0 rd.udev.info -y rdudevinfo && udevproperty "$UDEV_LOG_PRIO_ARG=info"
+getargbool 0 rd.udev.debug -y rdudevdebug && udevproperty "$UDEV_LOG_PRIO_ARG=debug"
+udevproperty "hookdir=$hookdir"
 
 getarg 'rd.break=pre-trigger' 'rdbreak=pre-trigger' && emergency_shell -n pre-trigger "Break before pre-trigger"
 source_hook pre-trigger
@@ -197,7 +211,7 @@ i=0
 while :; do
 
     check_finished && break
-    
+
     udevsettle
 
     check_finished && break
@@ -205,7 +219,7 @@ while :; do
     if [ -f $hookdir/initqueue/work ]; then
         rm $hookdir/initqueue/work
     fi
-    
+
     for job in $hookdir/initqueue/*.sh; do
         [ -e "$job" ] || break
         job=$job . $job
@@ -229,7 +243,7 @@ while :; do
     # which report no medium for quiet
     # some time.
     for cdrom in /sys/block/sr*; do
-        [ -e "$cdrom" ] || continue 
+        [ -e "$cdrom" ] || continue
         # skip, if cdrom medium was already found
         strstr "$(udevadm info --query=env --path=${cdrom##/sys})" \
             ID_CDROM_MEDIA && continue
@@ -244,7 +258,7 @@ while :; do
             echo change > "$cdrom/uevent"
         fi
     done
-    
+
     i=$(($i+1))
     [ $i -gt $RDRETRY ] \
         && { flock -s 9 ; emergency_shell "No root device \"$root\" found"; } 9>/.console_lock
@@ -254,7 +268,7 @@ unset queuetriggered
 
 # reset cdrom polling
 for cdrom in /sys/block/sr*; do
-    [ -e "$cdrom" ] || continue 
+    [ -e "$cdrom" ] || continue
     if [ -e "$cdrom"/events_poll_msecs ]; then
         echo -1 > "$cdrom"/events_poll_msecs
     fi
@@ -284,7 +298,7 @@ done
 
 {
     echo -n "Mounted root filesystem "
-    while read dev mp rest; do [ "$mp" = "$NEWROOT" ] && echo $dev; done < /proc/mounts 
+    while read dev mp rest; do [ "$mp" = "$NEWROOT" ] && echo $dev; done < /proc/mounts
 } | vinfo
 
 # pre pivot scripts are sourced just before we switch over to the new root.
@@ -309,46 +323,58 @@ done
 
 getarg rd.break rdbreak && emergency_shell -n switch_root "Break before switch_root"
 
-# stop udev queue before killing it
-udevadm control --stop-exec-queue
+if [ $UDEVVERSION -lt 168 ]; then
+    # stop udev queue before killing it
+    udevadm control --stop-exec-queue
 
-HARD=""
-while pidof udevd >/dev/null 2>&1; do 
-    for pid in $(pidof udevd); do
-        kill $HARD $pid >/dev/null 2>&1
+    HARD=""
+    while pidof udevd >/dev/null 2>&1; do
+        for pid in $(pidof udevd); do
+            kill $HARD $pid >/dev/null 2>&1
+        done
+        HARD="-9"
     done
-    HARD="-9"
-done
+else
+    udevadm control --exit
+    udevadm info --cleanup-db
+fi
 
+export RD_TIMESTAMP
+set +x # Turn off debugging for this section
 # Clean up the environment
 for i in $(export -p); do
     i=${i#declare -x}
     i=${i#export}
-    # skip RD_ vars
-    [ "$i" != "${i#RD_}" ] && continue
+    strstr "$i" "=" || continue
     i=${i%%=*}
-    [ "$i" = "root" -o "$i" = "PATH" -o "$i" = "HOME" -o "$i" = "TERM" ] || unset $i
+    [ -z "$i" ] && continue
+    case $i in
+        root|PATH|HOME|TERM|PS4|RD_*)
+            :;;
+        *)
+            unset "$i";;
+    esac
 done
 
 initargs=""
-
 read CLINE </proc/cmdline
 if getarg init= >/dev/null ; then
+    set +x # Turn off debugging for this section
     ignoreargs="console BOOT_IMAGE"
     # only pass arguments after init= to the init
     CLINE=${CLINE#*init=}
-        set $CLINE
-        shift
-        for x in "$@"; do
-            for s in $ignoreargs; do       
-                [ "${x%%=*}" = $s ] && continue 2
-            done
-            initargs="$initargs $x"
+    set -- $CLINE
+    shift # clear out the rest of the "init=" arg
+    for x in "$@"; do
+        for s in $ignoreargs; do
+            [ "${x%%=*}" = $s ] && continue 2
         done
-        unset CLINE
+        initargs="$initargs $x"
+    done
+    unset CLINE
 else
-    set $CLINE
-    shift
+    set +x # Turn off debugging for this section
+    set -- $CLINE
     for x in "$@"; do
         case "$x" in
             [0-9]|s|S|single|emergency|auto ) \
@@ -357,43 +383,42 @@ else
         esac
     done
 fi
+[ "$RD_DEBUG" = "yes" ] && set -x
 
-# Debug: Copy state
-if getargbool 0 rd.copystate -y rdcopystate; then
-    cp -axr /tmp/* /run/initramfs/ >/dev/null 2>&1
-fi
+if [ -d "$NEWROOT"/run ]; then
+    NEWRUN="${NEWROOT}/run"
+    mount --bind /run "$NEWRUN"
+    NEWINITRAMFSROOT="$NEWRUN/initramfs"
 
-if getargbool 1 rd.timestamp; then
-    export RD_TIMESTAMP
+    if [ "$NEWINITRAMFSROOT/lib" -ef "/lib" ]; then
+        for d in bin etc lib lib64 sbin tmp usr var; do
+            [ -h /$d ] && ln -fsn $NEWINITRAMFSROOT/$d /$d
+        done
+    fi
 else
-    unset RD_TIMESTAMP
-fi    
-
-info "Switching root"
+    NEWRUN=/dev/.initramfs
+    mkdir -m 0755 "$NEWRUN"
+    mount --bind /run/initramfs "$NEWRUN"
+fi
 
 wait_for_loginit
 
+info "Switching root"
 
-if [ -d "$NEWROOT"/run ]; then
-    mount --move /run "$NEWROOT"/run
-else
-    if [ -e /run/initramfs ]; then
-        cp -axr /run/initramfs /dev/.initramfs >/dev/null 2>&1
-        if [ -e /run/initramfs/live ]; then
-            mkdir -m 0755 /dev/.initramfs/live
-            mount --move /run/initramfs/live /dev/.initramfs/live
-        fi
-    fi
-    umount -l /run
-fi
+unset PS4
 
-export PATH="$OLD_PATH"
+CAPSH=$(command -v capsh)
+SWITCH_ROOT=$(command -v switch_root)
+PATH=$OLDPATH
+export PATH
 
 if [ -f /etc/capsdrop ]; then
     . /etc/capsdrop
     info "Calling $INIT with capabilities $CAPS_INIT_DROP dropped."
     unset RD_DEBUG
-    exec /usr/sbin/capsh --drop="$CAPS_INIT_DROP" -- -c "exec /sbin/switch_root \"$NEWROOT\" \"$INIT\" $initargs" || {
+    exec $CAPSH --drop="$CAPS_INIT_DROP" -- \
+        -c "exec switch_root \"$NEWROOT\" \"$INIT\" $initargs" || \
+    {
 	warn "Command:"
 	warn capsh --drop=$CAPS_INIT_DROP -- -c exec switch_root "$NEWROOT" "$INIT" $initargs
 	warn "failed."
@@ -401,7 +426,7 @@ if [ -f /etc/capsdrop ]; then
     }
 else
     unset RD_DEBUG
-    exec /sbin/switch_root "$NEWROOT" "$INIT" $initargs || {
+    exec $SWITCH_ROOT "$NEWROOT" "$INIT" $initargs || {
 	warn "Something went very badly wrong in the initramfs.  Please "
 	warn "file a bug against dracut."
 	emergency_shell

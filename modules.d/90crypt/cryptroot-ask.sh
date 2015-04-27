@@ -2,8 +2,11 @@
 # -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
 # ex: ts=8 sw=4 sts=4 et filetype=sh
 
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+NEWROOT=${NEWROOT:-"/sysroot"}
+
 # do not ask, if we already have root
-[ -f /sysroot/proc ] && exit 0
+[ -f $NEWROOT/proc ] && exit 0
 
 # check if destination already exists
 [ -b /dev/mapper/$2 ] && exit 0
@@ -40,7 +43,7 @@ if [ -f /etc/crypttab ] && getargbool 1 rd.luks.crypttab -n rd_NO_CRYPTTAB; then
                 luksname="$name"
                 break
             fi
-            
+
         # path used in crypttab
         else
             cdev=$(readlink -f $dev)
@@ -66,45 +69,25 @@ if [ -n "$(getarg rd.luks.key)" ]; then
         keypath="${tmp#*:}"
     else
         info "No key found for $device.  Will try later."
-        /sbin/initqueue --unique --onetime --settled \
+        initqueue --unique --onetime --settled \
             --name cryptroot-ask-$luksname \
-            /sbin/cryptroot-ask "$@"
+            $(command -v cryptroot-ask) "$@"
         exit 0
     fi
     unset tmp
 
-    mntp=$(mkuniqdir /mnt keydev)
-    mount -r "$keydev" "$mntp" || die 'Mounting rem. dev. failed!'
-    cryptsetup -d "$mntp/$keypath" luksOpen "$device" "$luksname"
-    umount "$mntp"
-    rmdir "$mntp"
-    unset mntp keypath keydev
+    info "Using '$keypath' on '$keydev'"
+    readkey "$keypath" "$keydev" "$device" \
+        | cryptsetup -d - luksOpen "$device" "$luksname"
+    unset keypath keydev
 else
-    # Prompt for password with plymouth, if installed and running.
-    if [ -x /bin/plymouth ] && /bin/plymouth --has-active-vt; then
-        prompt="Password [$device ($luksname)]:" 
-        if [ ${#luksname} -gt 8 ]; then
-            sluksname=${sluksname##luks-}
-            sluksname=${luksname%%${luksname##????????}}
-            prompt="Password for $device ($sluksname...)"
-        fi
-        
-        # flock against other interactive activities
-        { flock -s 9; 
-            /bin/plymouth ask-for-password \
-                --prompt "$prompt" --number-of-tries=5 \
-                --command="/sbin/cryptsetup luksOpen -T1 $device $luksname"
-        } 9>/.console.lock
-        
-        unset sluksname prompt
-        
-    else
-        # flock against other interactive activities
-        { flock -s 9;
-            echo "$device ($luksname) is password protected"
-            cryptsetup luksOpen -T5 $device $luksname
-        } 9>/.console.lock
-    fi
+    luks_open="$(command -v cryptsetup) luksOpen"
+    ask_for_password --ply-tries 5 \
+        --ply-cmd "$luks_open -T1 $device $luksname" \
+        --ply-prompt "Password ($device)" \
+        --tty-tries 1 \
+        --tty-cmd "$luks_open -T5 $device $luksname"
+    unset luks_open
 fi
 
 unset device luksname

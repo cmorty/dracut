@@ -1,7 +1,7 @@
 #!/bin/bash
 # -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
 # ex: ts=8 sw=4 sts=4 et filetype=sh
-# 
+#
 # Generator script for a dracut initramfs
 # Tries to retain some degree of compatibility with the command line
 # of the various mkinitrd implementations out there
@@ -40,19 +40,21 @@ Creates initial ramdisk images for preloading modules
   -a, --add [LIST]      Add a space-separated list of dracut modules.
   -d, --drivers [LIST]  Specify a space-separated list of kernel modules to
                         exclusively include in the initramfs.
-  --add-drivers [LIST]  Specify a space-separated list of kernel 
+  --add-drivers [LIST]  Specify a space-separated list of kernel
                         modules to add to the initramfs.
   --filesystems [LIST]  Specify a space-separated list of kernel filesystem
                         modules to exclusively include in the generic
                         initramfs.
-  -k, --kmoddir [DIR]   Specify the directory, where to look for kernel 
+  -k, --kmoddir [DIR]   Specify the directory, where to look for kernel
                         modules
-  --fwdir [DIR]         Specify additional directories, where to look for 
+  --fwdir [DIR]         Specify additional directories, where to look for
                         firmwares, separated by :
   --kernel-only         Only install kernel drivers and firmware files
   --no-kernel           Do not install kernel drivers and firmware files
   --strip               Strip binaries in the initramfs
   --nostrip             Do not strip binaries in the initramfs (default)
+  --prefix [DIR]        Prefix initramfs files with [DIR]
+  --noprefix            Do not prefix initramfs files (default)
   --mdadmconf           Include local /etc/mdadm.conf
   --nomdadmconf         Do not include local /etc/mdadm.conf
   --lvmconf             Include local /etc/lvm/lvm.conf
@@ -71,7 +73,7 @@ Creates initial ramdisk images for preloading modules
   -q, --quiet           Decrease verbosity level (default is info(4))
   -c, --conf [FILE]     Specify configuration file to use.
                          Default: /etc/dracut.conf
-  --confdir [DIR]       Specify configuration directory to use *.conf files 
+  --confdir [DIR]       Specify configuration directory to use *.conf files
                          from. Default: /etc/dracut.conf.d
   -l, --local           Local mode. Use modules from the current working
                          directory instead of the system-wide installed in
@@ -83,7 +85,7 @@ Creates initial ramdisk images for preloading modules
   -i, --include [SOURCE] [TARGET]
                         Include the files in the SOURCE directory into the
                          Target directory in the final initramfs.
-                        If SOURCE is a file, it will be installed to TARGET 
+                        If SOURCE is a file, it will be installed to TARGET
                          in the final initramfs.
   -I, --install [LIST]  Install the space separated list of files into the
                          initramfs.
@@ -94,20 +96,21 @@ Creates initial ramdisk images for preloading modules
                          Make sure your kernel has bzip2 decompression support
                          compiled in, otherwise you will not be able to boot.
   --lzma                Compress the generated initramfs using lzma.
-                         Make sure your kernel has lzma support compiled in, 
+                         Make sure your kernel has lzma support compiled in,
                          otherwise you will not be able to boot.
   --xz                  Compress the generated initramfs using xz.
                          Make sure that your kernel has xz support compiled
                          in, otherwise you will not be able to boot.
   --compress [COMPRESSION] Compress the generated initramfs with the
                          passed compression program.  Make sure your kernel
-                         knows how to decompress the generated initramfs, 
+                         knows how to decompress the generated initramfs,
                          otherwise you will not be able to boot.
   --no-compress         Do not compress the generated initramfs.  This will
                          override any other compression options.
   --list-modules        List all available dracut modules.
   -M, --show-modules    Print included module's name to standard output during
                          build.
+  --keep                Keep the temporary initramfs for debugging purposes
 EOF
 }
 
@@ -135,7 +138,7 @@ push() {
 # val=$(pop stack)
 pop() {
     local __stack=$1; shift
-    local __resultvar=$1    
+    local __resultvar=$1
     local myresult;
     # check for empty stack
     eval '[[ ${#'${__stack}'[@]} -eq 0 ]] && return 1'
@@ -206,11 +209,13 @@ while (($# > 0)); do
         -I|--install)  read_arg install_items        "$@" || shift;;
         --fwdir)       read_arg fw_dir_l             "$@" || shift;;
         --compress)    read_arg compress_l           "$@" || shift;;
+        --prefix)      read_arg prefix_l             "$@" || shift;;
         -f|--force)    force=yes;;
         --kernel-only) kernel_only="yes"; no_kernel="no";;
         --no-kernel)   kernel_only="no"; no_kernel="yes";;
         --strip)       do_strip_l="yes";;
         --nostrip)     do_strip_l="no";;
+        --noprefix)    prefix_l="/";;
         --mdadmconf)   mdadmconf_l="yes";;
         --nomdadmconf) mdadmconf_l="no";;
         --lvmconf)     lvmconf_l="yes";;
@@ -236,8 +241,9 @@ while (($# > 0)); do
         -M|--show-modules)
                        show_modules_l="yes"
                        ;;
+        --keep)        keep="yes";;
         -*) printf "\nUnknown option: %s\n\n" "$1" >&2; usage; exit 1;;
-        *) 
+        *)
             if ! [[ ${outfile+x} ]]; then
                 outfile=$1
             elif ! [[ ${kernel+x} ]]; then
@@ -257,7 +263,7 @@ fi
 PATH=/sbin:/bin:/usr/sbin:/usr/bin
 export PATH
 
-[[ $debug ]] && { 
+[[ $debug ]] && {
     export PS4='${BASH_SOURCE}@${LINENO}(${FUNCNAME[0]}): ';
     set -x
 }
@@ -265,7 +271,7 @@ export PATH
 [[ $dracutbasedir ]] || dracutbasedir=/usr/share/dracut
 
 [[ $allowlocal && -f "$(readlink -f ${0%/*})/dracut-functions" ]] && \
-    dracutbasedir="$(readlink -f ${0%/*})" 
+    dracutbasedir="$(readlink -f ${0%/*})"
 
 # if we were not passed a config file, try the default one
 if [[ ! -f $conffile ]]; then
@@ -283,7 +289,7 @@ fi
 
 # source our config dir
 if [[ $confdir && -d $confdir ]]; then
-    for f in "$confdir"/*.conf; do 
+    for f in "$confdir"/*.conf; do
         [[ -e $f ]] && . "$f"
     done
 fi
@@ -345,6 +351,8 @@ stdloglvl=$((stdloglvl + verbosity_mod_l))
 
 [[ $drivers_dir_l ]] && drivers_dir=$drivers_dir_l
 [[ $do_strip_l ]] && do_strip=$do_strip_l
+[[ $prefix_l ]] && prefix=$prefix_l
+[[ $prefix = "/" ]] && unset prefix
 [[ $hostonly_l ]] && hostonly=$hostonly_l
 [[ $use_fstab_l ]] && use_fstab=$use_fstab_l
 [[ $mdadmconf_l ]] && mdadmconf=$mdadmconf_l
@@ -358,11 +366,12 @@ stdloglvl=$((stdloglvl + verbosity_mod_l))
 fw_dir=${fw_dir//:/ }
 
 # handle compression options.
+[[ $compress ]] || compress="gzip"
 case $compress in
-    bzip2) compress="bzip -9";;
+    bzip2) compress="bzip2 -9";;
     lzma)  compress="lzma -9";;
     xz)    compress="xz --check=crc32 --lzma2=dict=1MiB";;
-    gzip)  type pigz > /dev/null 2>&1 && compress="pigz -9" || \
+    gzip)  command -v pigz > /dev/null 2>&1 && compress="pigz -9" || \
                                          compress="gzip -9";;
 esac
 if [[ $_no_compress_l = "cat" ]]; then
@@ -371,7 +380,6 @@ fi
 
 [[ $hostonly = yes ]] && hostonly="-h"
 [[ $hostonly != "-h" ]] && unset hostonly
-[[ $compress ]] || compress="gzip -9"
 
 if [[ -f $dracutbasedir/dracut-functions ]]; then
     . $dracutbasedir/dracut-functions
@@ -445,13 +453,13 @@ elif [[ -f "$outfile" && ! -w "$outfile" ]]; then
     exit 1
 fi
 
-[[ $TMPDIR && ! -w $TMPDIR ]] && unset TMPDIR
-readonly initdir=$(mktemp -d -t initramfs.XXXXXX)
+readonly TMPDIR=/var/tmp
+readonly initdir=$(mktemp --tmpdir=/var/tmp/ -d -t initramfs.XXXXXX)
 
 # clean up after ourselves no matter how we die.
-trap 'ret=$?;rm -rf "$initdir";exit $ret;' EXIT 
+trap 'ret=$?;[[ $keep ]] && echo "Not removing $initdir." >&2 || rm -rf "$initdir";exit $ret;' EXIT
 # clean up after ourselves no matter how we die.
-trap 'exit 1;' SIGINT 
+trap 'exit 1;' SIGINT
 
 # Need to be able to have non-root users read stuff (rpcbind etc)
 chmod 755 "$initdir"
@@ -463,33 +471,60 @@ export initdir dracutbasedir dracutmodules drivers \
     stdloglvl sysloglvl fileloglvl kmsgloglvl logfile \
     debug
 
-if [[ $kernel_only != yes ]]; then
-    # Create some directory structure first
-    for d in bin sbin usr/bin usr/sbin usr/lib etc \
-        proc sys sysroot tmp dev/pts var/run; do 
-        inst_dir "/$d"; 
+# Create some directory structure first
+[[ $prefix ]] && mkdir -m 0755 -p "${initdir}${prefix}"
+
+[[ -h /lib ]] || mkdir -m 0755 -p "${initdir}${prefix}/lib"
+[[ $prefix ]] && ln -sfn "${prefix#/}/lib" "$initdir/lib"
+
+if [[ $prefix ]]; then
+    for d in bin etc lib "$libdir" sbin tmp usr var; do
+        ln -sfn "${prefix#/}/${d#/}" "$initdir/$d"
     done
+fi
+
+if [[ $kernel_only != yes ]]; then
+    for d in bin etc lib "$libdir" sbin tmp usr var usr/bin usr/sbin; do
+        [[ -e "${initdir}${prefix}/$d" ]] && continue
+        if [ -h "/$d" ]; then
+            inst "/$d" "${prefix}/$d"
+        else
+            mkdir -m 0755 -p "${initdir}${prefix}/$d"
+        fi
+    done
+
+    for d in proc sys sysroot root run run/lock run/initramfs; do
+        if [ -h "/$d" ]; then
+            inst "/$d"
+        else
+            mkdir -m 0755 -p "$initdir/$d"
+        fi
+    done
+
+    ln -sfn /run "$initdir/var/run"
+    ln -sfn /run/lock "$initdir/var/lock"
 fi
 
 # check all our modules to see if they should be sourced.
 # This builds a list of modules that we will install next.
 check_module_dir
-
+modules_loaded=" "
 # source our modules.
 for moddir in "$dracutbasedir/modules.d"/[0-9][0-9]*; do
-    mod=${moddir##*/}; mod=${mod#[0-9][0-9]}
-    if strstr "$mods_to_load" " $mod "; then
-        [[ $show_modules = yes ]] && echo "$mod" || \
-            dinfo "*** Including module: $mod ***"
+    _d_mod=${moddir##*/}; _d_mod=${_d_mod#[0-9][0-9]}
+    if strstr "$mods_to_load" " $_d_mod "; then
+        [[ $show_modules = yes ]] && echo "$_d_mod" || \
+            dinfo "*** Including module: $_d_mod ***"
         if [[ $kernel_only = yes ]]; then
-            module_installkernel $mod
+            module_installkernel $_d_mod
         else
-            module_install $mod
+            module_install $_d_mod
             if [[ $no_kernel != yes ]]; then
-                module_installkernel $mod
+                module_installkernel $_d_mod
             fi
         fi
-        mods_to_load=${mods_to_load// $mod /}
+        mods_to_load=${mods_to_load// $_d_mod /}
+        modules_loaded+="$_d_mod "
     fi
 done
 unset moddir
@@ -511,7 +546,21 @@ while pop include_src src && pop include_target tgt; do
         else
             ddebug "Including directory: $src"
             mkdir -p "${initdir}/${tgt}"
-            cp -a -t "${initdir}/${tgt}" "$src"/*
+            # check for preexisting symlinks, so we can cope with the
+            # symlinks to $prefix
+            for i in "$src"/*; do
+                [[ -e "$i" || -h "$i" ]] || continue
+                s=${initdir}/${tgt}/${i#$src/}
+                if [[ -d "$i" ]]; then
+                    if ! [[ -e "$s" ]]; then
+                        mkdir -m 0755 -p "$s"
+                        chmod --reference="$i" "$s"
+                    fi
+                    cp -a -t "$s" "$i"/*
+                else
+                    cp -a -t "$s" "$i"
+                fi
+            done
         fi
     fi
 done
@@ -523,13 +572,18 @@ while pop install_items items; do
 done
 unset item
 
-# make sure that library links are correct and up to date
-dracut_install /etc/ld.so.conf /etc/ld.so.conf.d/*
-if ! ldconfig -r "$initdir"; then
-    if [[ $UID = 0 ]]; then
-        derror "ldconfig exited ungracefully"
-    else
-        derror "ldconfig might need uid=0 (root) for chroot()"
+
+if [[ $kernel_only != yes ]]; then
+    # make sure that library links are correct and up to date
+    for f in /etc/ld.so.conf /etc/ld.so.conf.d/*; do
+        [[ -e $f ]] && dracut_install "$f"
+    done
+    if ! ldconfig -r "$initdir"; then
+        if [[ $UID = 0 ]]; then
+            derror "ldconfig exited ungracefully"
+        else
+            derror "ldconfig might need uid=0 (root) for chroot()"
+        fi
     fi
 fi
 
@@ -538,9 +592,9 @@ if (($maxloglvl >= 5)); then
     du -c "$initdir" | sort -n | ddebug
 fi
 
-# strip binaries 
+# strip binaries
 if [[ $do_strip = yes ]] ; then
-    for p in strip grep find; do 
+    for p in strip grep find; do
         if ! type -P $p >/dev/null; then
             derror "Could not find '$p'. You should run $0 with '--nostrip'."
             do_strip=no
@@ -561,11 +615,20 @@ type hardlink &>/dev/null && {
     hardlink "$initdir" 2>&1
 }
 
+if strstr "$modules_loaded" " fips " && command -v prelink >/dev/null; then
+    for i in $initdir/bin/* \
+       $initdir/bin/* \
+       $initdir/usr/bin/* \
+       $initdir/usr/sbin/*; do
+       [ -x $i ] && prelink -u $i &>/dev/null
+    done
+fi
+
 if ! ( cd "$initdir"; find . |cpio -R 0:0 -H newc -o --quiet | \
-    $compress > "$outfile"; ); then 
+    $compress > "$outfile"; ); then
     dfatal "dracut: creation of $outfile failed"
     exit 1
-fi 
+fi
 
 dinfo "Wrote $outfile:"
 dinfo "$(ls -l "$outfile")"

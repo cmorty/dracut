@@ -11,7 +11,7 @@ LVS=$(getargs rd.lvm.lv rd_LVM_LV=)
 SNAPSHOT=$(getargs rd.lvm.snapshot rd_LVM_SNAPSHOT=)
 SNAPSIZE=$(getargs rd.lvm.snapsize rd_LVM_SNAPSIZE=)
 
-[ -d /etc/lvm ] || mkdir -p /etc/lvm
+[ -d /etc/lvm ] || mkdir -m 0755 -p /etc/lvm
 # build a list of devices to scan
 lvmdevs=$(
     for f in /tmp/.lvm_scan-*; do
@@ -20,7 +20,7 @@ lvmdevs=$(
     done
 )
 
-if [ ! -e /etc/lvm/lvm.conf ]; then 
+if [ ! -e /etc/lvm/lvm.conf ]; then
     {
         echo 'devices {';
         echo -n '    filter = [ '
@@ -28,7 +28,7 @@ if [ ! -e /etc/lvm/lvm.conf ]; then
             printf '"a|^/dev/%s$|", ' $dev;
         done;
         echo '"r/.*/" ]';
-        echo '}';         
+        echo '}';
 
         # establish LVM locking
         if [ -n $SNAPSHOT ]; then
@@ -66,7 +66,7 @@ IFS=$OLDIFS
 maj=${1##*:}
 min=$2
 sub=${3%% *}
-sub=${sub%%\(*}; 
+sub=${sub%%\(*};
 
 check_lvm_ver 2 2 57 $maj $min $sub && \
     nopoll="--poll n"
@@ -120,7 +120,5 @@ fi
 
 if [ "$lvmwritten" ]; then
     rm -f /etc/lvm/lvm.conf
-    ln -s /sbin/lvm-cleanup $hookdir/pre-pivot/30-lvm-cleanup.sh 2>/dev/null
-    ln -s /sbin/lvm-cleanup $hookdir/pre-pivot/31-lvm-cleanup.sh 2>/dev/null
 fi
 unset lvmwritten

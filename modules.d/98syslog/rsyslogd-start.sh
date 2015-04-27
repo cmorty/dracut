@@ -13,7 +13,7 @@ rsyslog_config() {
     shift
     local filters=$*
     local filter=
-    
+
     cat $syslog_template
 
     for filter in $filters; do
@@ -31,5 +31,5 @@ read conf < /tmp/syslog.conf
 template=/etc/templates/rsyslog.conf
 if [ -n "$server" ]; then
     rsyslog_config "$server" "$template" "$filters" > $conf
-    /sbin/rsyslogd -c3
-fi 
+    rsyslogd -c3
+fi

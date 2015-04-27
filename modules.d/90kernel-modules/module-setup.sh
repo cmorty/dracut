@@ -17,7 +17,7 @@ installkernel() {
         hostonly='' instmods atkbd i8042 usbhid hid-apple hid-sunplus hid-cherry hid-logitech hid-microsoft ehci-hcd ohci-hcd uhci-hcd
 
         instmods "=drivers/pcmcia" =ide "=drivers/usb/storage"
-        instmods $(filter_kernel_modules block_module_test) 
+        instmods $(filter_kernel_modules block_module_test)
         # if not on hostonly mode, install all known filesystems,
         # if the required list is not set via the filesystems variable
         if ! [[ $hostonly ]]; then
@@ -42,9 +42,19 @@ installkernel() {
 }
 
 install() {
+    local _f
     [ -f /etc/modprobe.conf ] && dracut_install /etc/modprobe.conf
     dracut_install $(find /etc/modprobe.d/ -type f -name '*.conf')
     inst_hook cmdline 01 "$moddir/parse-kernel.sh"
     inst_simple "$moddir/insmodpost.sh" /sbin/insmodpost.sh
-    inst "$srcmods/modules.builtin.bin" "/lib/modules/$kernel/modules.builtin.bin"
+
+    local f
+
+    for _f in modules.builtin.bin modules.builtin; do
+        [[ $srcmods/$_f ]] && inst "$srcmods/$_f" "/lib/modules/$kernel/$_f" \
+            && break
+    done || {
+        dfatal "No modules.builtin.bin and modules.builtin found!"
+        return 1
+    }
 }

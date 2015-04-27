@@ -52,17 +52,26 @@ if [ -n "$NEEDBOOTDEV" ] ; then
 fi
 
 if [ "ibft" = "$(getarg ip=)" ]; then
-    modprobe ibft
+    modprobe iscsi_ibft
     num=0
-    (   
+    (
 	for iface in /sys/firmware/ibft/ethernet*; do
 	    [ -e ${iface}/mac ] || continue
             ifname_mac=$(read a < ${iface}/mac; echo $a)
-	    [ -z "$ifname_mac" ] || continue
-            ifname_if=ibft$num
-	    num=$(( $num + 1 ))
-	    echo "ifname=$ifname_if:$ifname_mac"
-	    dev=$ifname_if
+	    [ -z "$ifname_mac" ] && continue
+            unset dev
+            for ifname in $(getargs ifname=); do
+		if strstr "$ifname" "$ifname_mac"; then
+		    dev=${ifname%%:*}
+                    break
+                fi
+	    done
+            if [ -z "$dev" ]; then
+		ifname_if=ibft$num
+		num=$(( $num + 1 ))
+		echo "ifname=$ifname_if:$ifname_mac"
+		dev=$ifname_if
+	    fi
 
 	    dhcp=$(read a < ${iface}/dhcp; echo $a)
 	    if [ -n "$dhcp" ]; then
@@ -147,7 +156,7 @@ for p in $(getargs ip=); do
 done
 
 # This ensures that BOOTDEV is always first in IFACES
-if [ -n "$BOOTDEV" ] && [ -n "$IFACES" ] ; then 
+if [ -n "$BOOTDEV" ] && [ -n "$IFACES" ] ; then
     IFACES="${IFACES%$BOOTDEV*} ${IFACES#*$BOOTDEV}"
     IFACES="$BOOTDEV $IFACES"
 fi
@@ -156,5 +165,5 @@ fi
 [ -n "$BOOTDEV" ] && echo $BOOTDEV > /tmp/net.bootdev
 [ -n "$IFACES" ]  && echo $IFACES > /tmp/net.ifaces
 
-# We need a ip= line for the configured bootdev= 
+# We need a ip= line for the configured bootdev=
 [ -n "$NEEDBOOTDEV" ] && [ -z "$BOOTDEVOK" ] && die "Bootdev Argument '$BOOTDEV' not found"

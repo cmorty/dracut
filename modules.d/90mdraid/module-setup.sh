@@ -3,6 +3,7 @@
 # ex: ts=8 sw=4 sts=4 et filetype=sh
 
 check() {
+    local _rootdev
     # No mdadm?  No mdraid support.
     type -P mdadm >/dev/null || return 1
 
@@ -12,11 +13,11 @@ check() {
     is_mdraid() { [[ -d "/sys/dev/block/$1/md" ]]; }
 
     [[ $hostonly ]] && {
-        rootdev=$(find_root_block_device)
-        if [[ $rootdev ]]; then
-            # root lives on a block device, so we can be more precise about 
+        _rootdev=$(find_root_block_device)
+        if [[ $_rootdev ]]; then
+            # root lives on a block device, so we can be more precise about
             # hostonly checking
-            check_block_and_slaves is_mdraid "$rootdev" || return 1
+            check_block_and_slaves is_mdraid "$_rootdev" || return 1
         else
             # root is not on a block device, use the shotgun approach
             blkid | egrep -q '(linux|isw)_raid' || return 1
@@ -36,12 +37,12 @@ installkernel() {
 }
 
 install() {
-    dracut_install mdadm partx 
+    dracut_install mdadm partx
 
 
      # XXX: mdmon really needs to run as non-root?
      #      If so, write only the user it needs in the initrd's /etc/passwd (and maybe /etc/group)
-     #      in a similar fashion to modules.d/95nfs.  Do not copy /etc/passwd and /etc/group from 
+     #      in a similar fashion to modules.d/95nfs.  Do not copy /etc/passwd and /etc/group from
      #      the system into the initrd.
      #      dledford has hardware to test this, so he should be able to clean this up.
      # inst /etc/passwd
@@ -53,11 +54,11 @@ install() {
 
     inst_rules "$moddir/65-md-incremental-imsm.rules"
 
-    if ! mdadm -Q -e imsm /dev/null &> /dev/null; then    
+    if ! mdadm -Q -e imsm /dev/null &> /dev/null; then
         inst_hook pre-trigger 30 "$moddir/md-noimsm.sh"
     fi
 
-    if [[ $hostonly ]] || [[ $mdadmconf = "yes" ]]; then 
+    if [[ $hostonly ]] || [[ $mdadmconf = "yes" ]]; then
         if [ -f /etc/mdadm.conf ]; then
             inst /etc/mdadm.conf
         else
@@ -67,7 +68,7 @@ install() {
 
     if [ -x  /sbin/mdmon ] ; then
         dracut_install mdmon
-    fi 
+    fi
     inst_hook pre-udev 30 "$moddir/mdmon-pre-udev.sh"
 
     inst "$moddir/mdraid_start.sh" /sbin/mdraid_start
@@ -76,5 +77,6 @@ install() {
     inst "$moddir/md_finished.sh" /sbin/md_finished.sh
     inst_hook pre-trigger 30 "$moddir/parse-md.sh"
     inst "$moddir/mdraid-cleanup.sh" /sbin/mdraid-cleanup
+    inst_hook shutdown 30 "$moddir/md-shutdown.sh"
 }
 

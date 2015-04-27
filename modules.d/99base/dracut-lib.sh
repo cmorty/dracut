@@ -52,12 +52,12 @@ _dogetarg() {
 
     for _o in $CMDLINE; do
         if [ "$_o" = "$1" ]; then
-            return 0; 
+            return 0;
         fi
         [ "${_o%%=*}" = "${1%=}" ] && _val=${_o#*=};
     done
     if [ -n "$_val" ]; then
-        echo $_val; 
+        echo $_val;
         return 0;
     fi
     return 1;
@@ -86,7 +86,7 @@ getarg() {
                 shift;;
         esac
     done
-    [ "$RD_DEBUG" = "yes" ] && set -x 
+    [ "$RD_DEBUG" = "yes" ] && set -x
     return 1
 }
 
@@ -105,7 +105,7 @@ getargbool() {
 }
 
 _dogetargs() {
-    set +x 
+    set +x
     local _o _found
     unset _o
     unset _found
@@ -116,7 +116,7 @@ _dogetargs() {
             return 0;
         fi
         if [ "${_o%%=*}" = "${1%=}" ]; then
-            echo -n "${_o#*=} "; 
+            echo -n "${_o#*=} ";
             _found=1;
         fi
     done
@@ -134,10 +134,10 @@ getargs() {
     done
     if [ -n "$_val" ]; then
         echo -n $_val
-        [ "$RD_DEBUG" = "yes" ] && set -x 
+        [ "$RD_DEBUG" = "yes" ] && set -x
         return 0
     fi
-    [ "$RD_DEBUG" = "yes" ] && set -x 
+    [ "$RD_DEBUG" = "yes" ] && set -x
     return 1;
 }
 
@@ -146,7 +146,7 @@ getargs() {
 # it just returns 0.  Otherwise 1 is returned.
 # $1 = options separated by commas
 # $2 = option we are interested in
-# 
+#
 # Example:
 # $1 = cipher=aes-cbc-essiv:sha256,hash=sha256,verify
 # $2 = hash
@@ -199,12 +199,14 @@ setdebug() {
         if [ -e /proc/cmdline ]; then
             RD_DEBUG=no
             if getargbool 0 rd.debug -y rdinitdebug -y rdnetdebug; then
-                RD_DEBUG=yes 
-            fi
+                RD_DEBUG=yes
+                [ -n "$BASH" ] && \
+                    export PS4='${BASH_SOURCE}@${LINENO}(${FUNCNAME[0]}): ';
+           fi
         fi
         export RD_DEBUG
     fi
-    [ "$RD_DEBUG" = "yes" ] && set -x 
+    [ "$RD_DEBUG" = "yes" ] && set -x
 }
 
 setdebug
@@ -240,13 +242,12 @@ die() {
         echo "<24>dracut: Refusing to continue";
     } > /dev/kmsg
 
-    { 
+    {
         echo "warn dracut: FATAL: \"$@\"";
         echo "warn dracut: Refusing to continue";
-	echo "exit 1"
     } >> $hookdir/emergency/01-die.sh
 
-    > /.die
+    > /run/initramfs/.die
     exit 1
 }
 
@@ -261,19 +262,24 @@ check_quiet() {
 warn() {
     check_quiet
     echo "<28>dracut Warning: $@" > /dev/kmsg
-    [ "$DRACUT_QUIET" != "yes" ] && \
-        echo "dracut Warning: $@" >&2
+    echo "dracut Warning: $@" >&2
 }
 
 info() {
     check_quiet
     echo "<30>dracut: $@" > /dev/kmsg
     [ "$DRACUT_QUIET" != "yes" ] && \
-        echo "dracut: $@" 
+        echo "dracut: $@"
+}
+
+vwarn() {
+    while read line; do
+        warn $line;
+    done
 }
 
 vinfo() {
-    while read line; do 
+    while read line; do
         info $line;
     done
 }
@@ -299,8 +305,8 @@ incol2() {
     local file="$1";
     local str="$2";
 
-    [ -z "$file" ] && return;
-    [ -z "$str"  ] && return;
+    [ -z "$file" ] && return 1;
+    [ -z "$str"  ] && return 1;
 
     while read dummy check restofline; do
         [ "$check" = "$str" ] && return 0
@@ -328,18 +334,25 @@ udevproperty() {
     fi
 }
 
+ismounted() {
+    while read a m a; do
+        [ "$m" = "$1" ] && return 0
+    done < /proc/mounts
+    return 1
+}
+
 wait_for_if_up() {
     local cnt=0
-    while [ $cnt -lt 20 ]; do 
+    while [ $cnt -lt 20 ]; do
         li=$(ip link show $1)
         [ -z "${li##*state UP*}" ] && return 0
         sleep 0.1
         cnt=$(($cnt+1))
-    done 
+    done
     return 1
 }
 
-# root=nfs:[<server-ip>:]<root-dir>[:<nfs-options>] 
+# root=nfs:[<server-ip>:]<root-dir>[:<nfs-options>]
 # root=nfs4:[<server-ip>:]<root-dir>[:<nfs-options>]
 nfsroot_to_var() {
     # strip nfs[4]:
@@ -361,10 +374,10 @@ nfsroot_to_var() {
     options="${options##:}"
     # strip  ":"
     options="${options%%:}"
-    
+
     # Does it really start with '/'?
     [ -n "${path%%/*}" ] && path="error";
-    
+
     #Fix kernel legacy style separating path and options with ','
     if [ "$path" != "${path#*,}" ] ; then
         options=${path#*,}
@@ -375,7 +388,7 @@ nfsroot_to_var() {
 ip_to_var() {
     local v=${1}:
     local i
-    set -- 
+    set --
     while [ -n "$v" ]; do
         if [ "${v#\[*:*:*\]:}" != "$v" ]; then
             # handle IPv6 address
@@ -383,7 +396,7 @@ ip_to_var() {
             i="${i##\[}"
             set -- "$@" "$i"
             v=${v#\[$i\]:}
-        else                
+        else
             set -- "$@" "${v%%:*}"
             v=${v#*:}
         fi
@@ -453,10 +466,10 @@ mkuniqdir() {
     local dir="$1"; local prefix="$2"
     local retdir; local retdir_new
 
-    [ -d "${dir}" ] || mkdir -p "${dir}" || return 1
+    [ -d "${dir}" ] || mkdir -m 0755 -p "${dir}" || return 1
 
     retdir=$(funiq "${dir}" "${prefix}") || return 1
-    until mkdir "${retdir}" 2>/dev/null; do
+    until mkdir -m 0755 "${retdir}" 2>/dev/null; do
         retdir_new=$(funiq "${dir}" "${prefix}") || return 1
         [ "$retdir_new" = "$retdir" ] && return 1
         retdir="$retdir_new"
@@ -502,3 +515,50 @@ foreach_uuid_until() (
 
     return 1
 )
+
+# Wrap fsck call for device _dev with additional fsck options _fsckopts return
+# fsck's return code
+wrap_fsck() {
+    local _ret _out _dev="$1" _fsckopts="$2"
+
+    info "Checking filesystem."
+    info fsck -T $_fsckopts "$_dev"
+    _out=$(fsck -T $_fsckopts "$_dev") ; _ret=$?
+
+    # A return of 4 or higher means there were serious problems.
+    if [ $_ret -gt 3 ]; then
+        echo $_out|vwarn
+        warn "fsck returned with error code $_ret"
+        warn "*** An error occurred during the file system check."
+        warn "*** Dropping you to a shell; the system will try"
+        warn "*** to mount the filesystem, when you leave the shell."
+        emergency_shell -n "(Repair filesystem)"
+    else
+        echo $_out|vinfo
+        [ $_ret -gt 0 ] && warn "fsck returned with $_ret"
+    fi
+
+    return $_ret
+}
+
+# Verify supplied filesystem type, fix if it's invalid, warn user if
+# appropriate
+det_fs() {
+    local _dev="$1" _fs="${2:-auto}" _inf="$3" _orig
+
+    _orig="$_fs"
+    _fs=$(udevadm info --query=env --name="$_dev" | \
+    while read line; do
+        if str_starts $line "ID_FS_TYPE="; then
+            echo ${line#ID_FS_TYPE=}
+            break
+        fi
+    done)
+    _fs=${_fs:-auto}
+    if [ "$_fs" = "auto" ]; then
+        warn "Cannon detect filesystem type for device $_dev"
+    elif [ "$_orig" != "auto" -a "$_fs" != "$_orig" ]; then
+        warn "$_inf: detected filesystem '$_fs' instead of '$_orig' for device: $_dev"
+    fi
+    echo "$_fs"
+}
