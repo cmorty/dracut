@@ -43,7 +43,7 @@ install() {
     inst_script "$moddir/init.sh" "/init"
     inst_script "$moddir/initqueue.sh" "/sbin/initqueue"
     inst_script "$moddir/loginit.sh" "/sbin/loginit"
-    inst_script "$moddir/sosreport.sh" "/sbin/sosreport"
+    inst_script "$moddir/rdsosreport.sh" "/sbin/rdsosreport"
 
     [ -e "${initdir}/lib" ] || mkdir -m 0755 -p ${initdir}/lib
     mkdir -m 0755 -p ${initdir}/lib/dracut
@@ -60,7 +60,11 @@ install() {
     fi
 
     mkdir -p "${initdir}/var"
-    dracut_install -o $systemdutildir/systemd-timestamp
+
+    if ! dracut_module_included "systemd"; then
+        dracut_install -o $systemdutildir/systemd-timestamp
+    fi
+
     if [[ $realinitpath ]]; then
         for i in $realinitpath; do
             echo "rd.distroinit=$i"
@@ -99,21 +103,24 @@ install() {
     ln -sf initrd-release $initdir/etc/os-release
 
     ## save host_devs which we need bring up
-    (
-        if dracut_module_included "systemd"; then
-            DRACUT_SYSTEMD=1
-        fi
-        PREFIX="$initdir"
+    if [[ -f "$initdir/lib/dracut/need-initqueue" ]] || ! dracut_module_included "systemd"; then
+        (
+            if dracut_module_included "systemd"; then
+                DRACUT_SYSTEMD=1
+            fi
+            PREFIX="$initdir"
 
-        . "$moddir/dracut-lib.sh"
+            . "$moddir/dracut-lib.sh"
 
-        for _dev in ${host_devs[@]}; do
-            _pdev=$(get_persistent_dev $_dev)
+            for _dev in ${host_devs[@]}; do
+                [[ "$_dev" == "$root_dev" ]] && continue
+                _pdev=$(get_persistent_dev $_dev)
 
-            case "$_pdev" in
-                /dev/?*) wait_for_dev $_pdev;;
-                *) ;;
-            esac
-        done
-    )
+                case "$_pdev" in
+                    /dev/?*) wait_for_dev $_pdev;;
+                    *) ;;
+                esac
+            done
+        )
+    fi
 }

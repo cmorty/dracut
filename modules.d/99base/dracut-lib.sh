@@ -54,9 +54,9 @@ killall_proc_mountpoint() {
         case $_pid in
             *[!0-9]*) continue;;
         esac
-        [ -e /proc/$_pid/exe ] || continue
-        [ -e /proc/$_pid/root ] || continue
-        strstr "$(ls -l /proc/$_pid /proc/$_pid/fd 2>/dev/null)" "$1" && kill -9 $_pid
+        [ -e "/proc/$_pid/exe" ] || continue
+        [ -e "/proc/$_pid/root" ] || continue
+        strstr "$(ls -l -- '/proc/$_pid' '/proc/$_pid/fd' 2>/dev/null)" "$1" && kill -9 "$_pid"
     done
 }
 
@@ -107,7 +107,7 @@ _dogetarg() {
                 continue
             fi
 
-            _val=${_o#*=};
+            _val="${_o#*=}"
             _doecho=1
         fi
     done
@@ -145,7 +145,7 @@ getarg() {
                 _deprecated=0
                 shift 2;;
             *)  if [ -z "$_newoption" ]; then
-                    _newoption=$1
+                    _newoption="$1"
                 fi
                 if _dogetarg $1; then
                     if [ "$_deprecated" = "1" ]; then
@@ -173,9 +173,9 @@ getargbool() {
     local _b
     unset _b
     local _default
-    _default=$1; shift
+    _default="$1"; shift
     _b=$(getarg "$@")
-    [ $? -ne 0 -a -z "$_b" ] && _b=$_default
+    [ $? -ne 0 -a -z "$_b" ] && _b="$_default"
     if [ -n "$_b" ]; then
         [ $_b = "0" ] && return 1
         [ $_b = "no" ] && return 1
@@ -201,14 +201,14 @@ getargnum() {
     local _b
     unset _b
     local _default _min _max
-    _default=$1; shift
-    _min=$1; shift
-    _max=$1; shift
+    _default="$1"; shift
+    _min="$1"; shift
+    _max="$1"; shift
     _b=$(getarg "$1")
     [ $? -ne 0 -a -z "$_b" ] && _b=$_default
     if [ -n "$_b" ]; then
         isdigit "$_b" && _b=$(($_b)) && \
-        [ $_b -ge $_min ] && [ $_b -le $_max ] && echo $_b && return
+          [ $_b -ge $_min ] && [ $_b -le $_max ] && echo $_b && return
     fi
     echo $_default
 }
@@ -219,7 +219,7 @@ _dogetargs() {
     unset _o
     unset _found
     _getcmdline
-    _key=$1
+    _key="$1"
     set --
     for _o in $CMDLINE; do
         if [ "$_o" = "$_key" ]; then
@@ -364,7 +364,7 @@ source_hook() {
 
 check_finished() {
     local f
-    for f in $hookdir/initqueue/finished/*.sh; do 
+    for f in $hookdir/initqueue/finished/*.sh; do
         [ "$f" = "$hookdir/initqueue/finished/*.sh" ] && return 0
         { [ -e "$f" ] && ( . "$f" ) ; } || return 1
     done
@@ -387,7 +387,7 @@ die() {
         echo "warn dracut: FATAL: \"$*\"";
         echo "warn dracut: Refusing to continue";
     } >> $hookdir/emergency/01-die.sh
-    [ -d /run/initramfs ] || mkdir -p /run/initramfs
+    [ -d /run/initramfs ] || mkdir -p -- /run/initramfs
     > /run/initramfs/.die
     emergency_shell
     exit 1
@@ -572,13 +572,16 @@ nfsroot_to_var() {
 # TOOD: symlinks
 udevmatch() {
     case "$1" in
-    UUID=????????-????-????-????-????????????|LABEL=*)
+    UUID=????????-????-????-????-????????????|LABEL=*|PARTLABEL=*|PARTUUID=????????-????-????-????-????????????)
         printf 'ENV{ID_FS_%s}=="%s"' "${1%%=*}" "${1#*=}"
         ;;
     UUID=*)
         printf 'ENV{ID_FS_UUID}=="%s*"' "${1#*=}"
         ;;
-    /dev/?*) printf 'KERNEL=="%s"' "${1#/dev/}" ;;
+    PARTUUID=*)
+        printf 'ENV{ID_FS_PARTUUID}=="%s*"' "${1#*=}"
+        ;;
+    /dev/?*) printf -- 'KERNEL=="%s"' "${1#/dev/}" ;;
     *) return 255 ;;
     esac
 }
@@ -754,7 +757,7 @@ inst_hook() {
 
     if [ -n "$onetime" ]; then
         {
-            echo '[ -e "$_job" ] && rm "$_job"'
+            echo '[ -e "$_job" ] && rm -f -- "$_job"'
             echo "$_exe $@"
         } > "/tmp/$$-${_job}.sh"
     else
@@ -867,12 +870,12 @@ cancel_wait_for_dev()
 {
     local _name
     _name="$(str_replace "$1" '/' '\\x2f')"
-    rm -f "$hookdir/initqueue/finished/devexists-${_name}.sh"
-    rm -f "$hookdir/emergency/80-${_name}.sh"
+    rm -f -- "$hookdir/initqueue/finished/devexists-${_name}.sh"
+    rm -f -- "$hookdir/emergency/80-${_name}.sh"
     if [ -n "$DRACUT_SYSTEMD" ]; then
         _name=$(dev_unit_name "$1")
-        rm -f ${PREFIX}/etc/systemd/system/initrd.target.requires/${_name}.device
-        rm -f ${PREFIX}/etc/systemd/system/${_name}.device.d/timeout.conf
+        rm -f -- ${PREFIX}/etc/systemd/system/initrd.target.requires/${_name}.device
+        rm -f -- ${PREFIX}/etc/systemd/system/${_name}.device.d/timeout.conf
         /sbin/initqueue --onetime --unique --name daemon-reload systemctl daemon-reload
     fi
 }
@@ -921,7 +924,7 @@ wait_for_loginit()
     fi
 
     setdebug
-    rm -f /run/initramfs/loginit.pipe /run/initramfs/loginit.pid
+    rm -f -- /run/initramfs/loginit.pipe /run/initramfs/loginit.pid
 }
 
 _emergency_shell()
@@ -931,13 +934,13 @@ _emergency_shell()
         > /.console_lock
         echo "PS1=\"$_name:\\\${PWD}# \"" >/etc/profile
         systemctl start dracut-emergency.service
-        rm -f /etc/profile
-        rm -f /.console_lock
+        rm -f -- /etc/profile
+        rm -f -- /.console_lock
     else
         debug_off
         echo
-        /sbin/sosreport
-        echo 'You might want to save "/run/initramfs/sosreport.txt" to a USB stick or /boot'
+        /sbin/rdsosreport
+        echo 'You might want to save "/run/initramfs/rdsosreport.txt" to a USB stick or /boot'
         echo 'after mounting them and attach it to a bug report.'
         if ! RD_DEBUG= getargbool 0 rd.debug -d -y rdinitdebug -d -y rdnetdebug; then
             echo

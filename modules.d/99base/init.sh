@@ -37,13 +37,6 @@ fi
 RD_DEBUG=""
 . /lib/dracut-lib.sh
 
-if [ -x $systemdutildir/systemd-timestamp ]; then
-    RD_TIMESTAMP=$($systemdutildir/systemd-timestamp)
-else
-    read RD_TIMESTAMP _tmp < /proc/uptime
-    unset _tmp
-fi
-
 setdebug
 
 if ! ismounted /dev; then
@@ -85,7 +78,7 @@ if ! ismounted /run; then
     mount -t tmpfs -o mode=0755,nosuid,nodev,strictatime tmpfs /newrun >/dev/null 
     cp -a /run/* /newrun >/dev/null 2>&1
     mount --move /newrun /run
-    rm -fr /newrun
+    rm -fr -- /newrun
 fi
 
 trap "action_on_fail Signal caught!" 0
@@ -174,7 +167,7 @@ while :; do
     check_finished && break
 
     if [ -f $hookdir/initqueue/work ]; then
-        rm $hookdir/initqueue/work
+        rm -f -- $hookdir/initqueue/work
     fi
 
     for job in $hookdir/initqueue/*.sh; do
@@ -237,7 +230,7 @@ while :; do
             usable_root "$NEWROOT" && break;
             warn "$NEWROOT has no proper rootfs layout, ignoring and removing offending mount hook"
             umount "$NEWROOT"
-            rm -f "$f"
+            rm -f -- "$f"
         fi
     done
 
@@ -317,7 +310,7 @@ for i in $(export -p); do
     esac
 done
 . /tmp/export.orig 2>/dev/null || :
-rm -f /tmp/export.orig
+rm -f -- /tmp/export.orig
 
 initargs=""
 read CLINE </proc/cmdline
@@ -356,7 +349,7 @@ fi
 wait_for_loginit
 
 # remove helper symlink
-[ -h /dev/root ] && rm -f /dev/root
+[ -h /dev/root ] && rm -f -- /dev/root
 
 getarg rd.break -d rdbreak && emergency_shell -n switch_root "Break before switch_root"
 info "Switching root"

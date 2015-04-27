@@ -24,7 +24,7 @@ install() {
 #        exit 1
 #    fi
 
-    if strstr "$prefix" "/run/"; then
+    if [[ "$prefix" == /run/* ]]; then
         dfatal "systemd does not work with a prefix, which contains \"/run\"!!"
         exit 1
     fi
@@ -39,6 +39,7 @@ install() {
         $systemdutildir/systemd-journald \
         $systemdutildir/systemd-sysctl \
         $systemdutildir/systemd-modules-load \
+        $systemdutildir/systemd-vconsole-setup \
         $systemdutildir/system-generators/systemd-fstab-generator \
         $systemdsystemunitdir/cryptsetup.target \
         $systemdsystemunitdir/emergency.target \
@@ -67,6 +68,7 @@ install() {
         $systemdsystemunitdir/swap.target \
         $systemdsystemunitdir/timers.target \
         $systemdsystemunitdir/paths.target \
+        $systemdsystemunitdir/umount.target \
         $systemdsystemunitdir/systemd-ask-password-console.path \
         $systemdsystemunitdir/systemd-udevd-control.socket \
         $systemdsystemunitdir/systemd-udevd-kernel.socket \
@@ -103,7 +105,9 @@ install() {
         $systemdsystemunitdir/initrd-udevadm-cleanup-db.service \
         $systemdsystemunitdir/initrd-parse-etc.service \
         \
-        $systemdsystemunitdir/umount.target \
+        $systemdsystemunitdir/slices.target \
+        $systemdsystemunitdir/system.slice \
+        \
         journalctl systemctl echo swapoff systemd-cgls
 
     dracut_install -o \
@@ -144,10 +148,10 @@ install() {
 
         _mods=$(modules_load_get /etc/modules-load.d)
         [[ $_mods ]] && instmods $_mods
-    else
-        if ! [[ -e "$initdir/etc/machine-id" ]]; then
-            > "$initdir/etc/machine-id"
-        fi
+    fi
+
+    if ! [[ -e "$initdir/etc/machine-id" ]]; then
+        > "$initdir/etc/machine-id"
     fi
 
     # install adm user/group for journald

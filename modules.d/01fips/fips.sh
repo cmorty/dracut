@@ -15,6 +15,12 @@ mount_boot()
         UUID=*)
             boot="/dev/disk/by-uuid/${boot#UUID=}"
             ;;
+        PARTUUID=*)
+            boot="/dev/disk/by-partuuid/${boot#PARTUUID=}"
+            ;;
+        PARTLABEL=*)
+            boot="/dev/disk/by-partlabel/${boot#PARTLABEL=}"
+            ;;
         /dev/*)
             ;;
         *)
@@ -44,7 +50,7 @@ mount_boot()
         info "Mounting $boot as /boot"
         mount -oro "$boot" /boot || return 1
     elif [ -d "$NEWROOT/boot" ]; then
-        rm -fr /boot
+        rm -fr -- /boot
         ln -sf "$NEWROOT/boot" /boot
     fi
 }
