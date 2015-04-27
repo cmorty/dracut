@@ -1,12 +1,12 @@
 .TH DRACUT 8 "June 2009" "Linux"
 .SH NAME
-switch_root \- switch to another filesystem as the root of the mount tree.
+dracut \- create initial ramdisk images for preloading modules
 .SH SYNOPSIS
 \fBdracut\fR [\fIOPTION\fR]... \fI<image>\fR  \fI<kernel-version>\fR
 
 .SH DESCRIPTION
-.B switch_root
-\fBdracut\fR creates an initial image used by the kernel for
+.B dracut
+creates an initial image used by the kernel for
 preloading the block device modules (such as IDE, SCSI or RAID)
 which are needed to access the root filesystem.
 
@@ -31,6 +31,9 @@ add a space-separated list of dracut modules.
 specify a space-separated list of kernel modules to exclusively include in the initramfs.
 .BR \-\-add-drivers " \fILIST\fR"
 specify a space-separated list of kernel modules to add to the initramfs.
+.TP
+.BR \-\-filesystems " \fILIST\fR"
+specify a space-separated list of kernel filesystem modules to exclusively include in the generic initramfs.
 .TP
 .BR \-k ", " \-\-kmoddir " \fI{DIR}\fR   
 specify the directory, where to look for kernel modules
@@ -101,14 +104,26 @@ root filesystem.
 .B init=<path to real init>
 .TP
 .B root=<path to blockdevice>
-specify e.g. \fI/dev/sda1\fR or
-\fI/dev/disk/by-path/pci-0000:00:1f.1-scsi-0:0:1:0-part1\fR
+specify blockdevice to use as root filesystem.
+e.g. \fI/dev/sda1\fR
+e.g. \fI/dev/disk/by-path/pci-0000:00:1f.1-scsi-0:0:1:0-part1\fR
+.TP
 .B rootfstype=<filesystem type>
 "auto" if not specified, e.g. \fIrootfstype=ext3\fR
+.TP
 .B rootflags=<mount options>
-specify additional mount options for the root filesystem
+specify additional mount options for the root filesystem. If not set, /etc/fstab
+of the real root will be parsed for special mount options and mounted 
+accordingly.
+.TP
+.B rd_NO_FSTAB
+do not honor special mount options for the root filesystem found in 
+/etc/fstab of the real root.
+
 .SH I18N
+.ad l
 e.g. LANG=en_US.UTF-8 SYSFONT=latarcyrheb-sun16 KEYTABLE=de-latin1-nodeadkeys
+.ad
 .TP
 .B KEYBOARDTYPE=sun|pc
 will be written to /etc/sysconfig/keyboard in the initramfs
@@ -135,6 +150,9 @@ disable LVM detection
 .TP
 .B rd_LVM_VG=<volume group name>
 only activate the volume groups with the given name
+.TP
+.B rd_NO_LVMCONF
+remove any /etc/lvm/lvm.conf, which may exist in the initramfs
 
 .SH crypto LUKS
 .TP
@@ -143,6 +161,11 @@ disable crypto LUKS detection
 .TP
 .B rd_LUKS_UUID=<luks uuid>
 only activate the LUKS partitions with the given UUID
+Any "luks-" of the LUKS UUID is removed before comparing to <luks uuid>.
+The comparisons also matches, if <luks uuid> is only the beginning of the 
+LUKS UUID, so you don't have to specify the full UUID.
+.B rd_NO_CRYPTTAB
+do not check if LUKS partition is in /etc/crypttab
 
 .SH MD
 .TP
@@ -168,9 +191,30 @@ only activate the raid sets with the given UUID
 
 .SH DASD
 .TP
-.B dasd=....
+.B rd_DASD_MOD=....
 same syntax as the kernel module parameter (s390 only)
 
+.TP
+.B rd_DASD=<dasd adaptor device bus ID>[,readonly=X][,use_diag=X][,erplog=X][,failfast=X]
+activate DASD device with the given adaptor device bus ID and setting the sysfs attributes
+to the specified values
+
+.SH ZFCP
+.TP
+.B rd_ZFCP=<zfcp adaptor device bus ID>,<WWPN>,<FCPLUN>
+rd_ZFCP can be specified multiple times on the kernel command line.
+
+example: rd_ZFCP=0.0.4000,0x5005076300C213e9,0x5022000000000000 
+.TP
+.B rd_NO_ZFCPCONF
+ignore zfcp.conf included in the initramfs
+
+.SH CCW
+.TP
+.B rd_CCW=<nettype>,<subchannels>,<options>
+rd_CCW can be specified multiple times on the kernel command line. Examples:
+    rd_CCW=qeth,0.0.0600,0.0.0601,0.0.0602,layer2=1,portname=foo
+    rd_CCW=ctc,0.0.0600,0.0.0601,0.0.0602,protocol=bar
 .SH DHCP
 .TP
 .B root=dhcp
@@ -198,10 +242,13 @@ options can be specified.
 \fBDeprecated!\fR kernel Documentation/filesystems/nfsroot.txt defines 
 this method.  
 This is supported by dracut but not recommended.
+.TP
+.B rd_NFS_DOMAIN=<NFSv4 domain name>
+Set the NFSv4 domain name. Will overwrite the settings in /etc/idmap.conf.
 
 .SH iSCSI
 .TP
-.B root=iscsi:[username:password[reverse:password]@][<servername>]:[<protocol>]:[<port>]:[<LUN>]:<targetname>
+.B root=iscsi:[username:password[:reverse:password]@][<servername>]:[<protocol>]:[<port>]:[<LUN>]:<targetname>
 protocol defaults to "6", LUN defaults to "0".
 
 If the "servername" field is provided by BOOTP or DHCP, then that
@@ -218,10 +265,15 @@ http://tools.ietf.org/html/rfc4173
 e.g. root=iscsi:192.168.50.1::::iqn.2009-06.dracut:target0
 .TP
 .B root=??? netroot=iscsi:[username:password[:reverse:password]@][<servername>]:[<protocol>]:[<port>]:[<LUN>]:<targetname> ...
+.ad l
 multiple netroot options allow setting up multiple iscsi disks
 e.g. 
-   root=UUID=12424547 netroot=iscsi:192.168.50.1::::iqn.2009-06.dracut:target0 netroot=iscsi:192.168.50.1::::iqn.2009-06.dracut:target1
-.B not yet implemented
+   root=UUID=12424547
+   netroot=iscsi:192.168.50.1::::iqn.2009-06.dracut:target0
+   netroot=iscsi:192.168.50.1::::iqn.2009-06.dracut:target1
+
+.B not yet implemented!
+.ad
 .TP
 .B root=??? iscsi_initiator= iscsi_target_name= iscsi_target_ip= iscsi_target_port= iscsi_target_group= iscsi_username=  iscsi_password= iscsi_in_username= iscsi_in_password=
 .TP
@@ -241,13 +293,11 @@ the MAC-address must be lowercase!
 mount nbd share from <server>
 .TP
 .B root=dhcp 
-   with dhcp root-path=nbd:<server>:<port>[:<fstype>][:<mountopts>]
+with dhcp root-path=nbd:<server>:<port>[:<fstype>][:<mountopts>]
 root=dhcp alone directs initrd to look at the DHCP root-path where NBD options can be specified.
 This syntax is only usable in cases where you are directly mounting the volume as the rootfs.
 
 .SH Network
-.TP bootdev=<interface>
-.B specify the network interface to boot from
 .TP
 .B ip={dhcp|on|any}
 get ip from dhcp server from all interfaces. If root=dhcp, loop sequentially through all interfaces (eth0, eth1, ...) and use the first with a valid DHCP root-path.
@@ -255,20 +305,24 @@ get ip from dhcp server from all interfaces. If root=dhcp, loop sequentially thr
 .B ip=<interface>:{dhcp|on|any}
 get ip from dhcp server on a specific interface
 .TP
-.B ip=<client-IP-number>:[<server-id>]:<gateway-IP-number>:<netmask>:<client-hostname>:<interface>:{none|off}
+.ad l
+.B ip=<client-IP>:[<server-id>]:<gateway-IP>:<netmask>:<client\%hostname>:<interface>:{none|off}
+.ad
 explicit network configuration
-
-.SH Plymouth Boot Splash
-.TP
-.B rd_NO_PLYMOUTH
-do not start plymouth. This will not work with encrypted partitions.
-
 .TP
 .B ifname=<interface>:<MAC>
 Assign network device name <interface> (ie eth0) to the NIC with MAC <MAC>.
 Note letters in the MAC-address must be lowercase!
 Note that if you use this option you \fBmust\fR specify an ifname= argument
 for all interfaces used in ip= or fcoe= arguments
+.TP
+.B bootdev=<interface>
+specify network interface to use routing and netroot information from. Required if multiple ip= lines are used.
+
+.SH Plymouth Boot Splash
+.TP
+.B rd_NO_PLYMOUTH
+do not start plymouth. This will not work with encrypted partitions.
 
 .SH Misc
 .TP
@@ -284,12 +338,12 @@ print informational output though "quiet" is set
 allow dropping to a shell, if root mounting fails
 .TP
 .B rdinitdebug
-set -x for the dracut shell
+set -x for the dracut shell and logs to dmesg, console and /init.log
 .TP
 .B rdbreak
 drop to a shell at the end
 .TP
-.B rdbreak={cmdline|pre-udev|pre-trigger|initqueue|pre-mount|mount|pre-pivot}
+.B rdbreak={cmdline | pre-udev | pre-trigger | initqueue | pre-mount | mount | pre-pivot}
 drop to a shell on defined breakpoint
 .TP
 .B rdudevinfo
@@ -308,21 +362,26 @@ Any files found in /conf/conf.d/ will be sourced in the initramfs to
 set initial values. Command line options will override these values 
 set in the configuration files.
 
+.SH FILES
+.TP
+.B /var/log/dracut.log
+.TP
+.B /tmp/dracut.log
+.TP
+.B /etc/dracut.conf
+
 .SH AUTHORS
 .nf
-Andreas Thienemann <andreas@bawue.net>
-Bill Nottingham <notting@redhat.com>
-Dave Jones <davej@redhat.com>
-David Dillow <dave@thedillows.org>
 Harald Hoyer <harald@redhat.com>
-Jeremy Katz <katzj@redhat.com>
-Peter Jones <pjones@redhat.com>
-Seewer Philippe <philippe.seewer@bfh.ch>
 Victor Lowther <victor.lowther@gmail.com>
 Warren Togami <wtogami@redhat.com>
+Jeremy Katz <katzj@redhat.com>
+Philippe Seewer <philippe.seewer@bfh.ch>
+David Dillow <dave@thedillows.org>
 .fi
 .SH AVAILABILITY
 The dracut command is part of the dracut package and is available from
-https://sourceforge.net/apps/trac/dracut/wiki
+http://sourceforge.net/apps/trac/dracut/wiki
 
-
+.SH SEE ALSO
+.BR dracut.conf (5)

@@ -4,26 +4,11 @@ PATH=$PATH:/sbin:/usr/sbin
 
 . /lib/dracut-lib.sh
 
-if getarg rdnetdebug ; then
-    exec >/tmp/netroot.$1.$$.out
-    exec 2>>/tmp/netroot.$1.$$.out
-    set -x
-fi
-
 # Huh? Empty $1?
 [ -z "$1" ] && exit 1
 
 # Huh? No interface config?
 [ ! -e /tmp/net.$1.up ] && exit 1
-
-# Only try to configure from one network interface at a time
-#
-if [ -z "$NETROOT_LOCKED" ] ; then
-    NETROOT_LOCKED=true
-    export NETROOT_LOCKED
-    exec flock -xo /tmp/netroot.lock -c "$0 $*"
-    exit 1
-fi
 
 # There's no sense in doing something if no (net)root info is available
 # or root is already there
@@ -90,7 +75,30 @@ done
 
 [ -e /tmp/net.$netif.gw ]          && . /tmp/net.$netif.gw
 [ -e /tmp/net.$netif.hostname ]    && . /tmp/net.$netif.hostname
-[ -e /tmp/resolv.conf ] && cp -f /tmp/resolv.conf /etc/resolv.conf
+[ -e /tmp/net.$netif.resolv.conf ] && cp -f /tmp/net.$netif.resolv.conf /etc/resolv.conf
+
+# Load interface options
+[ -e /tmp/net.$netif.override ] && . /tmp/net.$netif.override
+[ -e /tmp/dhclient.$netif.dhcpopts ] && . /tmp/dhclient.$netif.dhcpopts
+
+# Handle STP Timeout: arping default router or if not available the
+# root server. Note: This assumes that if no router is present the
+# root server is on the same subnet.
+#
+# TODO There's some netroot variants that don't (yet) have their 
+# server-ip netroot
+[ -n "$new_routers" ] && dest=${new_routers%%,*}
+[ -n "$gw" ] && dest=$gw
+if [ -z "$dest" ] ; then
+    dummy=${netroot#*:}
+    dummy=${dummy%%:*}
+    case "$dummy" in
+       [0-9]*\.[0-9]*\.[0-9]*\.[0-9]*) dest=$dummy;;
+    esac
+fi
+if [ -n "$dest" ] && ! arping -q -f -w 60 -I $netif $dest ; then
+    die "Resolving $dest via ARP on $netif failed"
+fi
 
 # Source netroot hooks before we start the handler
 source_all netroot

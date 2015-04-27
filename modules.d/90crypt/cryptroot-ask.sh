@@ -10,6 +10,23 @@
 [ -f /tmp/cryptroot-asked-$2 ] && exit 0
 
 . /lib/dracut-lib.sh
+
+luksname=$2
+if [ -f /etc/crypttab ] && ! getargs rd_NO_CRYPTTAB; then
+    found=0
+    while read name dev rest; do
+	cdev=$(readlink -f $dev)
+	mdev=$(readlink -f $1)
+	if [ "$cdev" = "$mdev" ]; then
+            # for now just ignore everything which is in crypttab
+            # anaconda does not write an entry for root
+            exit 0
+            #luksname="$name"
+            #break
+	fi
+    done < /etc/crypttab
+fi
+
 LUKS=$(getargs rd_LUKS_UUID=)
 ask=1
 
@@ -17,8 +34,10 @@ if [ -n "$LUKS" ]; then
     ask=0
     luuid=${2##luks-}
     for luks in $LUKS; do
-	if [ "${luuid##$luks}" != "$2" ]; then
+        luks=${luks##luks-}
+	if [ "${luuid##$luks}" != "$luuid" ] || [ "$luksname" == "$luks" ]; then
 	    ask=1
+	    break
 	fi
     done
 fi
@@ -28,7 +47,7 @@ if [ $ask -gt 0 ]; then
     # flock against other interactive activities
     { flock -s 9; 
 	echo -n "$1 is password protected " 
-	/sbin/cryptsetup luksOpen -T1 $1 $2 
+	/sbin/cryptsetup luksOpen -T1 $1 $luksname 
     } 9>/.console.lock
 fi
 

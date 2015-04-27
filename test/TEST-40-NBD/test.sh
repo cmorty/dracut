@@ -4,7 +4,7 @@ TEST_DESCRIPTION="root filesystem on NBD"
 KVERSION=${KVERSION-$(uname -r)}
 
 # Uncomment this to debug failures
-#DEBUGFAIL="rdinitdebug rdnetdebug"
+#DEBUGFAIL="rdshell"
 
 run_server() {
     # Start server first
@@ -16,7 +16,7 @@ run_server() {
 	-net socket,mcast=230.0.0.1:1236 \
 	-serial udp:127.0.0.1:9999 \
 	-kernel /boot/vmlinuz-$KVERSION \
-	-append "root=/dev/sda rw quiet console=ttyS0,115200n81" \
+	-append "root=/dev/sda rw quiet console=ttyS0,115200n81 selinux=0" \
 	-initrd initramfs.server -pidfile server.pid -daemonize || return 1
     sudo chmod 644 server.pid || return 1
 
@@ -50,7 +50,7 @@ client_test() {
 	-net nic,macaddr=$mac,model=e1000 \
 	-net socket,mcast=230.0.0.1:1236 \
 	-kernel /boot/vmlinuz-$KVERSION \
-	-append "$cmdline $DEBUGFAIL rdshell ro quiet console=ttyS0,115200n81" \
+	-append "$cmdline $DEBUGFAIL rdinitdebug rdinfo rdnetdebug ro quiet console=ttyS0,115200n81 selinux=0" \
 	-initrd initramfs.testing
 
     if [[ $? -ne 0 ]] || ! grep -m 1 -q nbd-OK flag.img; then
@@ -192,6 +192,7 @@ make_encrypted_root() {
 	. $basedir/dracut-functions
 	dracut_install mke2fs poweroff cp umount
 	inst_simple ./create-root.sh /initqueue/01create-root.sh
+	inst_simple ./99-idesymlinks.rules /etc/udev/rules.d/99-idesymlinks.rules
     )
 
     # create an initramfs that will create the target root filesystem.
@@ -199,7 +200,7 @@ make_encrypted_root() {
     # devices, volume groups, encrypted partitions, etc.
     $basedir/dracut -l -i overlay / \
 	-m "dash crypt lvm mdraid udev-rules base rootfs-block kernel-modules" \
-	-d "ata_piix ext2 sd_mod" \
+	-d "piix ide-gd_mod ata_piix ext2 ext3 sd_mod" \
 	-f initramfs.makeroot $KVERSION || return 1
     rm -rf overlay
 
@@ -207,7 +208,7 @@ make_encrypted_root() {
     $testdir/run-qemu -hda flag.img -hdb encrypted.ext2 -m 256M \
 	-nographic -net none \
 	-kernel "/boot/vmlinuz-$kernel" \
-	-append "root=/dev/dracut/root rw quiet console=ttyS0,115200n81" \
+	-append "root=/dev/dracut/root rw quiet console=ttyS0,115200n81 selinux=0" \
 	-initrd initramfs.makeroot  || return 1
     grep -m 1 -q dracut-root-block-created flag.img || return 1
 }
@@ -290,18 +291,19 @@ test_setup() {
 	. $basedir/dracut-functions
 	dracut_install poweroff shutdown
 	inst_simple ./hard-off.sh /emergency/01hard-off.sh
+	inst_simple ./99-idesymlinks.rules /etc/udev/rules.d/99-idesymlinks.rules
 	inst ./cryptroot-ask /sbin/cryptroot-ask
     )
 
     sudo $basedir/dracut -l -i overlay / \
 	-m "dash udev-rules rootfs-block base debug kernel-modules" \
-	-d "ata_piix ext2 sd_mod e1000" \
+	-d "piix ide-gd_mod ata_piix ext2 ext3 sd_mod e1000" \
 	-f initramfs.server $KVERSION || return 1
 
     sudo $basedir/dracut -l -i overlay / \
 	-o "plymouth" \
 	-a "debug" \
-	-d "ata_piix ext2 ext3 sd_mod e1000" \
+	-d "piix ide-gd_mod ata_piix ext2 ext3 sd_mod e1000" \
 	-f initramfs.testing $KVERSION || return 1
 }
 

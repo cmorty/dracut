@@ -26,7 +26,7 @@ strstr() { [[ $1 =~ $2 ]]; }
 
 # Log initrd creation.
 if ! [[ $dracutlogfile ]]; then
-    [[ $dsrc = /usr/share/dracut ]] && \
+    [[ $dracutbasedir = /usr/share/dracut ]] && \
 	dracutlogfile=/var/log/dracut.log || \
 	dracutlogfile=/tmp/dracut.log
 #    [[ -w $dracutlogfile ]] || dracutlogfile=/tmp/dracut.log
@@ -111,7 +111,7 @@ get_numeric_dev() {
 # so, there are no slave devices for volume groups.
 # Logical volumes only have the slave devices they really live on,
 # but you cannot create the logical volume without the volume group.
-# And the volume group might be bigger than the devices the LV needes.
+# And the volume group might be bigger than the devices the LV needs.
 check_vol_slaves() {
     for i in /dev/mapper/*; do 
 	lv=$(get_numeric_dev $i)
@@ -131,6 +131,36 @@ check_vol_slaves() {
     return 1
 }
 
+# Install a directory, keeping symlinks as on the original system.
+# Example: if /lib64 points to /lib on the host, "inst_dir /lib/file"
+# will create ${initdir}/lib64, ${initdir}/lib64/file,
+# and a symlink ${initdir}/lib -> lib64.
+inst_dir() {
+    local dir="$1"
+    [[ -e "${initdir}$dir" ]] && return 0
+
+    # iterate over parent directories
+    local file=""
+    local IFS="/"
+    for part in $dir; do
+        [ -z "$part" ] && continue
+        file="$file/$part"
+        [[ -e "${initdir}$file" ]] && continue
+
+        if [ -L "$file" ]; then
+            # create link as the original
+            local target=$(readlink "$file")
+            ln -sfn "$target" "${initdir}$file" || return 1
+            # resolve relative path and recursively install destionation
+            [[ "$target" = "${target##*/}" ]] && target="${file%/*}/$target"
+            inst_dir "$target"
+        else
+            # create directory
+            mkdir -p "${initdir}$file" || return 1
+        fi
+    done
+}
+
 # $1 = file to copy to ramdisk
 # $2 (optional) Name for the file on the ramdisk
 # Location of the image dir is assumed to be $initdir
@@ -138,24 +168,26 @@ check_vol_slaves() {
 inst_simple() {
     local src target
     [[ -f $1 ]] || return 1
-    src=$1 target=${initdir}${2:-$1}
-    [[ -f $target ]] && return 0
-    mkdir -p "${target%/*}"
+    src=$1 target="${2:-$1}"
+    if ! [[ -d ${initdir}$target ]]; then
+        [[ -e ${initdir}$target ]] && return 0
+        inst_dir "${target%/*}"
+    fi
     dinfo "Installing $src" 
-    cp -pfL "$src" "$target"
+    cp -pfL "$src" "${initdir}$target"
 }
 
-# Same as above, but specialzed to handle dynamic libraries.
+# Same as above, but specialized to handle dynamic libraries.
 # It handles making symlinks according to how the original library
 # is referenced.
 inst_library() {
     local src=$1 dest=${2:-$1}
-    [[ -f $initdir$dest ]] && return 0
+    [[ -e $initdir$dest ]] && return 0
     if [[ -L $src ]]; then
 	reallib=$(readlink -f "$src")
 	lib=${src##*/}
 	inst_simple "$reallib" "$reallib"
-	mkdir -p "${initdir}${dest%/*}"
+	inst_dir "${dest%/*}"
 	(cd "${initdir}${dest%/*}" && ln -s "$reallib" "$lib")
     else
 	inst_simple "$src" "$dest"
@@ -179,8 +211,9 @@ inst_binary() {
     local bin target
     bin=$(find_binary "$1") || return 1
     target=${2:-$bin}
+    inst_symlink $bin $target && return 0
     local LDSO NAME IO FILE ADDR I1 n f TLIBDIR
-    [[ -f $initdir$target ]] && return 0
+    [[ -e $initdir$target ]] && return 0
     # I love bash!
     ldd $bin 2>/dev/null | while read line; do
 	[[ $line = 'not a dynamic executable' ]] && return 1
@@ -193,7 +226,7 @@ inst_binary() {
 	so_regex='([^ ]*/lib[^/]*/[^ ]*\.so[^ ]*)'
 	[[ $line =~ $so_regex ]] || continue
 	FILE=${BASH_REMATCH[1]}
-	[[ -f ${initdir}$FILE ]] && continue
+	[[ -e ${initdir}$FILE ]] && continue
 	# see if we are loading an optimized version of a shared lib.
 	lib_regex='^(/lib[^/]*).*'
 	if [[ $FILE =~ $lib_regex ]]; then
@@ -201,7 +234,7 @@ inst_binary() {
             BASE=${FILE##*/}
 	    # prefer nosegneg libs, then unoptimized ones.
 	    for f in "$TLIBDIR/i686/nosegneg" "$TLIBDIR"; do
-		[[ -f $f/$BASE ]] || continue
+		[[ -e $f/$BASE ]] || continue
 		FILE=$f/$BASE
 		break
 	    done
@@ -237,10 +270,10 @@ inst_symlink() {
     inst "$realsrc" && ln -s "$realsrc" "$target"
 }
 
-# find a rule in the usual places.
+# find a udev rule in the usual places.
 find_rule() {
     [[ -f $1 ]] && { echo "$1"; return 0; }
-    for r in . /lib/udev/rules.d /etc/udev/rules.d $dsrc/rules.d; do
+    for r in . /lib/udev/rules.d /etc/udev/rules.d $dracutbasedir/rules.d; do
 	[[ -f $r/$1 ]] && { echo "$r/$1"; return 0; }
     done
     return 1
@@ -250,7 +283,8 @@ find_rule() {
 # create a function to install them to make life simpler.
 inst_rules() { 
     local target=/etc/udev/rules.d
-    mkdir -p "$initdir/lib/udev/rules.d" "$initdir$target"
+    inst_dir "/lib/udev/rules.d"
+    inst_dir "$target"
     for rule in "$@"; do 
 	rule=$(find_rule "$rule") && \
 	    inst_simple "$rule" "$target/${rule##*/}"
@@ -319,7 +353,7 @@ check_module_deps() {
     # if we are already set to be loaded, we do not have to be checked again.
     strstr "$mods_to_load" " $1 " && return
     # turn a module name into a directory, if we can.
-    moddir=$(echo ${dsrc}/modules.d/??${1})
+    moddir=$(echo ${dracutbasedir}/modules.d/??${1})
     [[ -d $moddir && -x $moddir/install ]] || return 1
     # if we do not have a check script, we are unconditionally included
     if [[ -x $moddir/check ]]; then
@@ -353,7 +387,7 @@ should_source_module() {
 }
 
 check_modules() {
-    for moddir in "$dsrc/modules.d"/[0-9][0-9]*; do
+    for moddir in "$dracutbasedir/modules.d"/[0-9][0-9]*; do
 	local mod=${moddir##*/}; mod=${mod#[0-9][0-9]}
 	# If we are already scheduled to be loaded, no need to check again.
 	strstr "$mods_to_load" " $mod " && continue
@@ -385,7 +419,7 @@ install_kmod_with_fw() {
 	    fi
 	done
 	if [[ $found != yes ]]; then
-	    dwarning "Possible missing firmware ${fw} for module ${mod}.ko"
+	    dinfo "Possible missing firmware ${fw} for module ${mod}.ko"
 	fi
     done
 }
@@ -406,7 +440,7 @@ for_each_kmod_dep() {
     done
 }
 
-# filter kernel modules to install certian modules that meet specific
+# filter kernel modules to install certain modules that meet specific
 # requirements.
 # $1 = function to call with module name to filter.
 #      This function will be passed the full path to the module to test.
@@ -415,7 +449,7 @@ for_each_kmod_dep() {
 # If it is not, we will look at all kernel modules
 # This function returns the full filenames of modules that match $1
 filter_kernel_modules () (
-    if [[ $hostonly = '' ]]; then
+    if ! [[ $hostonly ]]; then
 	filtercmd='find "$srcmods/kernel/drivers" -name "*.ko"'
     else
 	filtercmd='cut -d " " -f 1 </proc/modules|xargs modinfo -F filename -k $kernel'
@@ -456,7 +490,7 @@ instmods() {
 	        [[ -f $initdir/$1 ]] && { shift; continue; }
 		# If we are building a host-specific initramfs and this
 		# module is not already loaded, move on to the next one.
-		[[ $hostonly ]] && ! grep -q "$mod" /proc/modules && { 
+		[[ $hostonly ]] && ! grep -q "${mod//-/_}" /proc/modules && {
 		    shift; continue; 
 		}
 		# ok, load the module, all its dependencies, and any firmware

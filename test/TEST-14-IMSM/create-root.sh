@@ -4,7 +4,12 @@ for x in 61-dmraid-imsm.rules 65-md-incremental-imsm.rules 65-md-incremental.rul
     > "/etc/udev/rules.d/$x"
 done
 udevadm control --reload-rules
-echo y|dmraid -f isw -C Test0 --type 1 --disk "/dev/sdb /dev/sdc" 
+# dmraid does not want symlinks in --disk "..."
+if [ -e /dev/hda ] ; then 
+    echo y|dmraid -f isw -C Test0 --type 1 --disk "/dev/hdb /dev/hdc"
+else 
+    echo y|dmraid -f isw -C Test0 --type 1 --disk "/dev/sdb /dev/sdc"
+fi
 udevadm settle
 
 SETS=$(dmraid -c -s)
@@ -36,7 +41,11 @@ done
 
 udevadm settle
 
-mdadm --create /dev/md0 --run --auto=yes --level=5 --raid-devices=3 /dev/mapper/isw*p[123]
+mdadm --create /dev/md0 --run --auto=yes --level=5 --raid-devices=3 \
+	/dev/mapper/isw*p1 \
+	/dev/mapper/isw*p2 \
+	/dev/mapper/isw*p3 
+
 # wait for the array to finish initailizing, otherwise this sometimes fails
 # randomly.
 mdadm -W /dev/md0
@@ -51,4 +60,5 @@ cp -a -t /sysroot /source/* && \
 umount /sysroot && \
 lvm lvchange -a n /dev/dracut/root && \
 echo "dracut-root-block-created" >/dev/sda
+mdadm --wait-clean /dev/md0
 poweroff -f

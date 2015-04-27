@@ -4,7 +4,7 @@ TEST_DESCRIPTION="root filesystem on NFS"
 KVERSION=${KVERSION-$(uname -r)}
 
 # Uncomment this to debug failures
-#DEBUGFAIL="rdinitdebug rdnetdebug"
+#DEBUGFAIL="rdshell"
 
 run_server() {
     # Start server first
@@ -15,7 +15,7 @@ run_server() {
 	-net socket,mcast=230.0.0.1:1234 \
 	-serial udp:127.0.0.1:9999 \
 	-kernel /boot/vmlinuz-$KVERSION \
-	-append "root=/dev/sda rw quiet console=ttyS0,115200n81" \
+	-append "root=/dev/sda rw quiet console=ttyS0,115200n81 selinux=0" \
 	-initrd initramfs.server -pidfile server.pid -daemonize || return 1
     sudo chmod 644 server.pid || return 1
 
@@ -46,7 +46,7 @@ client_test() {
   	-net nic,macaddr=$mac,model=e1000 \
   	-net socket,mcast=230.0.0.1:1234 \
   	-kernel /boot/vmlinuz-$KVERSION \
-  	-append "$cmdline $DEBUGFAIL rdshell ro quiet console=ttyS0,115200n81" \
+  	-append "$cmdline $DEBUGFAIL rdinitdebug rdinfo quiet rdnetdebug ro console=ttyS0,115200n81 selinux=0" \
   	-initrd initramfs.testing
 
     if [[ $? -ne 0 ]] || ! grep -m 1 -q nfs-OK client.img; then
@@ -133,7 +133,7 @@ test_nfsv3() {
 
     # This test must fail: nfsroot= requires root=/dev/nfs
     client_test "NFSv3 Invalid root=dhcp nfsroot=/nfs/client" 52:54:00:12:34:04 \
-	"root=dhcp nfsroot=/nfs/client" 192.168.50.1 -wsize=4096 && return 1
+	"root=dhcp nfsroot=/nfs/client failme" 192.168.50.1 -wsize=4096 && return 1
 
     client_test "NFSv3 root=dhcp DHCP path,options" \
 	52:54:00:12:34:05 "root=dhcp" 192.168.50.1 wsize=4096 || return 1
@@ -168,6 +168,11 @@ test_nfsv4() {
 }
 
 test_run() {
+    if [[ -s server.pid ]]; then
+	sudo kill -TERM $(cat server.pid)
+	rm -f server.pid
+    fi
+
     if ! run_server; then
 	echo "Failed to start server" 1>&2
 	return 1
@@ -272,19 +277,20 @@ test_setup() {
 	. $basedir/dracut-functions
 	dracut_install poweroff shutdown
 	inst_simple ./hard-off.sh /emergency/01hard-off.sh
+	inst_simple ./99-idesymlinks.rules /etc/udev/rules.d/99-idesymlinks.rules
     )
 
     # Make server's dracut image
     $basedir/dracut -l -i overlay / \
 	-m "dash udev-rules base rootfs-block debug kernel-modules" \
-	-d "ata_piix ext2 sd_mod e1000" \
+	-d "piix ide-gd_mod ata_piix ext2 sd_mod e1000" \
 	-f initramfs.server $KVERSION || return 1
 
     # Make client's dracut image
     $basedir/dracut -l -i overlay / \
 	-o "plymouth" \
 	-a "debug" \
-	-d "e1000 nfs sunrpc" \
+	-d "piix ide-gd_mod ata_piix sd_mod e1000 nfs sunrpc" \
 	-f initramfs.testing $KVERSION || return 1
 }
 

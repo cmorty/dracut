@@ -4,13 +4,13 @@ TEST_DESCRIPTION="root filesystem on LVM PV on a isw dmraid"
 KVERSION=${KVERSION-$(uname -r)}
 
 # Uncomment this to debug failures
-#DEBUGFAIL="rdinitdebug rdnetdebug"
+#DEBUGFAIL="rdshell"
 
 client_run() {
     echo "CLIENT TEST START: $@"
     $testdir/run-qemu -hda root.ext2 -hdb disk1 -hdc disk2 -m 256M -nographic \
 	-net none -kernel /boot/vmlinuz-$KVERSION \
-	-append "$@ root=LABEL=root rw quiet rdinfo console=ttyS0,115200n81 rdshell $DEBUGFAIL" \
+	-append "$@ root=LABEL=root rw quiet rdinfo console=ttyS0,115200n81 selinux=0 rdinitdebug rdnetdebug $DEBUGFAIL" \
 	-initrd initramfs.testing
     if ! grep -m 1 -q dracut-root-block-success root.ext2; then
 	echo "CLIENT TEST END: $@ [FAIL]"
@@ -29,8 +29,8 @@ test_run() {
     # This test succeeds, because the mirror parts are found without
     # assembling the mirror itsself, which is what we want
     client_run rd_NO_DM rd_NO_MDIMSM rd_NO_MDADMCONF || return 1
-    client_run rd_NO_MD rd_NO_MDIMSM  && return 1
-    client_run rd_NO_MD && return 1
+    client_run rd_NO_MD rd_NO_MDIMSM failme && return 1
+    client_run rd_NO_MD failme && return 1
    return 0
 }
 
@@ -61,6 +61,7 @@ test_setup() {
 	. $basedir/dracut-functions
 	dracut_install sfdisk mke2fs poweroff cp umount 
 	inst_simple ./create-root.sh /initqueue/01create-root.sh
+	inst_simple ./99-idesymlinks.rules /etc/udev/rules.d/99-idesymlinks.rules
     )
  
     # create an initramfs that will create the target root filesystem.
@@ -68,13 +69,13 @@ test_setup() {
     # devices, volume groups, encrypted partitions, etc.
     $basedir/dracut -l -i overlay / \
 	-m "dash lvm mdraid dmraid udev-rules base rootfs-block kernel-modules" \
-	-d "ata_piix ext2 sd_mod dm-multipath dm-crypt dm-round-robin faulty linear multipath raid0 raid10 raid1 raid456" \
+	-d "piix ide-gd_mod ata_piix ext2 sd_mod dm-multipath dm-crypt dm-round-robin faulty linear multipath raid0 raid10 raid1 raid456" \
 	-f initramfs.makeroot $KVERSION || return 1
     rm -rf overlay
     # Invoke KVM and/or QEMU to actually create the target filesystem.
     $testdir/run-qemu -hda root.ext2 -hdb disk1 -hdc disk2 -m 256M -nographic -net none \
 	-kernel "/boot/vmlinuz-$kernel" \
-	-append "root=/dev/dracut/root rw rootfstype=ext2 quiet console=ttyS0,115200n81" \
+	-append "root=/dev/dracut/root rw rootfstype=ext2 quiet console=ttyS0,115200n81 selinux=0" \
 	-initrd initramfs.makeroot  || return 1
     grep -m 1 -q dracut-root-block-created root.ext2 || return 1
     (
@@ -82,11 +83,12 @@ test_setup() {
 	. $basedir/dracut-functions
 	dracut_install poweroff shutdown
 	inst_simple ./hard-off.sh /emergency/01hard-off.sh
+	inst_simple ./99-idesymlinks.rules /etc/udev/rules.d/99-idesymlinks.rules
     )
     sudo $basedir/dracut -l -i overlay / \
 	-o "plymouth" \
 	-a "debug" \
-	-d "ata_piix ext2 sd_mod" \
+	-d "piix ide-gd_mod ata_piix ext2 sd_mod" \
 	-f initramfs.testing $KVERSION || return 1
 }
 
