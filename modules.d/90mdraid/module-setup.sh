@@ -27,7 +27,7 @@ check() {
     }
 
     [[ $hostonly ]] || [[ $mount_needs ]] && {
-        for_each_host_dev_fs check_mdraid || return 1
+        for_each_host_dev_and_slaves_all check_mdraid || return 1
     }
 
     return 0
@@ -48,22 +48,17 @@ install() {
     inst $(command -v partx) /sbin/partx
     inst $(command -v mdadm) /sbin/mdadm
 
-     # XXX: mdmon really needs to run as non-root?
-     #      If so, write only the user it needs in the initrd's /etc/passwd (and maybe /etc/group)
-     #      in a similar fashion to modules.d/95nfs.  Do not copy /etc/passwd and /etc/group from
-     #      the system into the initrd.
-     #      dledford has hardware to test this, so he should be able to clean this up.
-     # inst /etc/passwd
-     # inst /etc/group
-
-     inst_rules 64-md-raid.rules
-     # remove incremental assembly from stock rules, so they don't shadow
-     # 65-md-inc*.rules and its fine-grained controls, or cause other problems
-     # when we explicitly don't want certain components to be incrementally
-     # assembled
-     sed -i -r -e '/RUN\+?="[[:alpha:]/]*mdadm[[:blank:]]+(--incremental|-I)[[:blank:]]+(\$env\{DEVNAME\}|\$tempnode)"/d' "${initdir}${udevdir}/rules.d/64-md-raid.rules"
+    inst_rules 64-md-raid.rules
+    # remove incremental assembly from stock rules, so they don't shadow
+    # 65-md-inc*.rules and its fine-grained controls, or cause other problems
+    # when we explicitly don't want certain components to be incrementally
+    # assembled
+    sed -i -r -e '/RUN\+?="[[:alpha:]/]*mdadm[[:blank:]]+(--incremental|-I)[[:blank:]]+(\$env\{DEVNAME\}|\$tempnode)"/d' "${initdir}${udevdir}/rules.d/64-md-raid.rules"
 
     inst_rules "$moddir/65-md-incremental-imsm.rules"
+
+    inst_rules "$moddir/59-persistent-storage-md.rules"
+    prepare_udev_rules 59-persistent-storage-md.rules
 
     # guard against pre-3.0 mdadm versions, that can't handle containers
     if ! mdadm -Q -e imsm /dev/null >/dev/null 2>&1; then
@@ -88,8 +83,8 @@ install() {
     inst_hook shutdown 30 "$moddir/md-shutdown.sh"
     inst_script "$moddir/mdraid-cleanup.sh" /sbin/mdraid-cleanup
     inst_script "$moddir/mdraid_start.sh" /sbin/mdraid_start
-    if [ -e /lib/systemd/system/mdmon-offroot@.service ]; then
-        inst_simple /lib/systemd/system/mdmon-offroot@.service
+    if [ -e /lib/systemd/system/mdmon@.service ]; then
+        inst_simple /lib/systemd/system/mdmon@.service
     fi
     inst_hook pre-shutdown 30 "$moddir/mdmon-pre-shutdown.sh"
 }

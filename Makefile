@@ -1,4 +1,4 @@
-VERSION=025
+VERSION=026
 GITVERSION=$(shell [ -d .git ] && git rev-list  --abbrev-commit  -n 1 HEAD  |cut -b 1-8)
 
 -include Makefile.inc
@@ -24,10 +24,11 @@ man8pages = dracut.8 \
             mkinitrd.8 \
             modules.d/98systemd/dracut-cmdline.service.8 \
             modules.d/98systemd/dracut-initqueue.service.8 \
+            modules.d/98systemd/dracut-mount.service.8 \
+            modules.d/98systemd/dracut-pre-mount.service.8 \
             modules.d/98systemd/dracut-pre-pivot.service.8 \
             modules.d/98systemd/dracut-pre-trigger.service.8 \
             modules.d/98systemd/dracut-pre-udev.service.8 \
-            modules.d/98systemd/initrd-switch-root.service.8 \
             modules.d/98systemd/udevadm-cleanup-db.service.8
 
 manpages = $(man1pages) $(man5pages) $(man7pages) $(man8pages)
@@ -91,6 +92,7 @@ install: dracut-version.sh
 	install -m 0755 lsinitrd.sh $(DESTDIR)$(bindir)/lsinitrd
 	install -m 0644 dracut.conf $(DESTDIR)$(sysconfdir)/dracut.conf
 	mkdir -p $(DESTDIR)$(sysconfdir)/dracut.conf.d
+	mkdir -p $(DESTDIR)$(pkglibdir)/dracut.conf.d
 	install -m 0755 dracut-functions.sh $(DESTDIR)$(pkglibdir)/dracut-functions.sh
 	install -m 0755 dracut-version.sh $(DESTDIR)$(pkglibdir)/dracut-version.sh
 	ln -fs dracut-functions.sh $(DESTDIR)$(pkglibdir)/dracut-functions
@@ -114,6 +116,8 @@ endif
 	if [ -f install/dracut-install ]; then \
 		install -m 0755 install/dracut-install $(DESTDIR)$(pkglibdir)/dracut-install; \
 	fi
+	mkdir -p $(DESTDIR)${prefix}/lib/kernel/install.d
+	install -m 0755 50-dracut.install $(DESTDIR)${prefix}/lib/kernel/install.d/50-dracut.install
 
 dracut-version.sh:
 	@echo "DRACUT_VERSION=$(VERSION)-$(GITVERSION)" > dracut-version.sh

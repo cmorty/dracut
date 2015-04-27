@@ -16,6 +16,13 @@ depends() {
 }
 
 install() {
+
+    SYSTEMD_VERSION=$(systemd --version | { read a b a; echo $b; })
+    if (( $SYSTEMD_VERSION < 198 )); then
+        dfatal "systemd version $SYSTEMD_VERSION is too low. Need at least version 198."
+        exit 1
+    fi
+
     if strstr "$prefix" "/run/"; then
         dfatal "systemd does not work a prefix, which contains \"/run\"!!"
         exit 1
@@ -30,6 +37,9 @@ install() {
         $systemdutildir/systemd-udevd \
         $systemdutildir/systemd-journald \
         $systemdutildir/systemd-sysctl \
+        $systemdutildir/systemd-modules-load \
+        $systemdutildir/system-generators/systemd-fstab-generator \
+        $systemdsystemunitdir/cryptsetup.target \
         $systemdsystemunitdir/emergency.target \
         $systemdsystemunitdir/sysinit.target \
         $systemdsystemunitdir/basic.target \
@@ -57,12 +67,16 @@ install() {
         $systemdsystemunitdir/systemd-ask-password-plymouth.path \
         $systemdsystemunitdir/systemd-journald.socket \
         $systemdsystemunitdir/systemd-ask-password-console.service \
-        $systemdsystemunitdir/emergency.service \
+        $systemdsystemunitdir/systemd-modules-load.service \
         $systemdsystemunitdir/halt.service \
+        $systemdsystemunitdir/systemd-halt.service \
         $systemdsystemunitdir/poweroff.service \
+        $systemdsystemunitdir/systemd-poweroff.service \
         $systemdsystemunitdir/systemd-reboot.service \
         $systemdsystemunitdir/kexec.service \
+        $systemdsystemunitdir/systemd-kexec.service \
         $systemdsystemunitdir/fsck@.service \
+        $systemdsystemunitdir/systemd-fsck@.service \
         $systemdsystemunitdir/systemd-udevd.service \
         $systemdsystemunitdir/systemd-udev-trigger.service \
         $systemdsystemunitdir/systemd-udev-settle.service \
@@ -71,29 +85,39 @@ install() {
         $systemdsystemunitdir/systemd-vconsole-setup.service \
         $systemdsystemunitdir/sysinit.target.wants/systemd-modules-load.service \
         $systemdsystemunitdir/sysinit.target.wants/systemd-ask-password-console.path \
-        $systemdsystemunitdir/sysinit.target.wants/systemd-vconsole-setup.service \
         $systemdsystemunitdir/sysinit.target.wants/systemd-journald.service \
         $systemdsystemunitdir/sockets.target.wants/systemd-udevd-control.socket \
         $systemdsystemunitdir/sockets.target.wants/systemd-udevd-kernel.socket \
         $systemdsystemunitdir/sockets.target.wants/systemd-journald.socket \
         $systemdsystemunitdir/sysinit.target.wants/systemd-udevd.service \
         $systemdsystemunitdir/sysinit.target.wants/systemd-udev-trigger.service \
+\
         $systemdsystemunitdir/ctrl-alt-del.target \
-        $systemdsystemunitdir/single.service \
         $systemdsystemunitdir/syslog.socket \
         $systemdsystemunitdir/syslog.target \
         $systemdsystemunitdir/initrd-switch-root.target \
         $systemdsystemunitdir/initrd-switch-root.service \
+        $systemdsystemunitdir/initrd-cleanup.service \
+        $systemdsystemunitdir/initrd-udevadm-cleanup-db.service \
+        $systemdsystemunitdir/initrd-parse-etc.service \
+\
         $systemdsystemunitdir/umount.target \
-        journalctl systemctl echo swapoff
+        journalctl systemctl echo swapoff systemd-cgls
+
+    dracut_install -o \
+        /usr/lib/modules-load.d/*.conf
 
     if [[ $hostonly ]]; then
-        dracut_install -o /etc/systemd/journald.conf \
+        dracut_install -o \
+            /etc/systemd/journald.conf \
             /etc/systemd/system.conf \
             /etc/hostname \
             /etc/machine-id \
             /etc/vconsole.conf \
             /etc/locale.conf
+
+        dracut_install -o \
+            /etc/modules-load.d/*.conf
     else
         if ! [[ -e "$initdir/etc/machine-id" ]]; then
             > "$initdir/etc/machine-id"
@@ -106,45 +130,70 @@ install() {
     egrep '^adm:' /etc/group >> "$initdir/etc/group"
 
     ln -fs $systemdutildir/systemd "$initdir/init"
+    ln -fs $systemdutildir/systemd "$initdir/sbin/init"
 
+    inst_script "$moddir/dracut-emergency.sh" /bin/dracut-emergency
+    inst_simple "$moddir/emergency.service" ${systemdsystemunitdir}/emergency.service
     inst_simple "$moddir/dracut-emergency.service" ${systemdsystemunitdir}/dracut-emergency.service
-    inst_simple "$moddir/rescue.service" ${systemdsystemunitdir}/rescue.service
-    ln -fs "basic.target" "${initdir}${systemdsystemunitdir}/default.target"
+    inst_simple "$moddir/emergency.service" ${systemdsystemunitdir}/rescue.service
 
     dracutsystemunitdir="/etc/systemd/system"
 
-    mkdir -p "${initdir}${dracutsystemunitdir}/basic.target.wants"
-    mkdir -p "${initdir}${dracutsystemunitdir}/sysinit.target.wants"
+    mkdir -p "${initdir}${dracutsystemunitdir}/dracut.target.wants"
 
-    inst_simple "$moddir/initrd-switch-root.target" ${dracutsystemunitdir}/initrd-switch-root.target
-    inst_simple "$moddir/initrd-switch-root.service" ${dracutsystemunitdir}/initrd-switch-root.service
+    mkdir -p "${initdir}${systemdsystemunitdir}/sysinit.target.d"
+    {
+        echo "[Unit]"
+        echo "After="
+        echo "After=emergency.service emergency.target"
+    } > "${initdir}${systemdsystemunitdir}/sysinit.target.d/nolocalfs.conf"
+
+    inst_simple "$moddir/dracut.target" ${dracutsystemunitdir}/dracut.target
+    ln -fs ${dracutsystemunitdir}/dracut.target "${initdir}${systemdsystemunitdir}/default.target"
 
     inst_script "$moddir/dracut-cmdline.sh" /bin/dracut-cmdline
     inst_simple "$moddir/dracut-cmdline.service" ${dracutsystemunitdir}/dracut-cmdline.service
-    ln -fs ../dracut-cmdline.service "${initdir}${dracutsystemunitdir}/sysinit.target.wants/dracut-cmdline.service"
+    ln -fs ../dracut-cmdline.service "${initdir}${dracutsystemunitdir}/dracut.target.wants/dracut-cmdline.service"
 
     inst_script "$moddir/dracut-pre-udev.sh" /bin/dracut-pre-udev
     inst_simple "$moddir/dracut-pre-udev.service" ${dracutsystemunitdir}/dracut-pre-udev.service
-    ln -fs ../dracut-pre-udev.service "${initdir}${dracutsystemunitdir}/sysinit.target.wants/dracut-pre-udev.service"
+    ln -fs ../dracut-pre-udev.service "${initdir}${dracutsystemunitdir}/dracut.target.wants/dracut-pre-udev.service"
 
     inst_script "$moddir/dracut-pre-trigger.sh" /bin/dracut-pre-trigger
     inst_simple "$moddir/dracut-pre-trigger.service" ${dracutsystemunitdir}/dracut-pre-trigger.service
-    ln -fs ../dracut-pre-trigger.service "${initdir}${dracutsystemunitdir}/sysinit.target.wants/dracut-pre-trigger.service"
+    ln -fs ../dracut-pre-trigger.service "${initdir}${dracutsystemunitdir}/dracut.target.wants/dracut-pre-trigger.service"
 
     inst_script "$moddir/dracut-initqueue.sh" /bin/dracut-initqueue
     inst_simple "$moddir/dracut-initqueue.service" ${dracutsystemunitdir}/dracut-initqueue.service
-    ln -fs ../dracut-initqueue.service "${initdir}${dracutsystemunitdir}/basic.target.wants/dracut-initqueue.service"
+    ln -fs ../dracut-initqueue.service "${initdir}${dracutsystemunitdir}/dracut.target.wants/dracut-initqueue.service"
+
+    inst_script "$moddir/dracut-pre-mount.sh" /bin/dracut-pre-mount
+    inst_simple "$moddir/dracut-pre-mount.service" ${dracutsystemunitdir}/dracut-pre-mount.service
+    ln -fs ../dracut-pre-mount.service "${initdir}${dracutsystemunitdir}/dracut.target.wants/dracut-pre-mount.service"
+
+    inst_script "$moddir/dracut-mount.sh" /bin/dracut-mount
+    inst_simple "$moddir/dracut-mount.service" ${dracutsystemunitdir}/dracut-mount.service
+    ln -fs ../dracut-mount.service "${initdir}${dracutsystemunitdir}/dracut.target.wants/dracut-mount.service"
 
     inst_script "$moddir/dracut-pre-pivot.sh" /bin/dracut-pre-pivot
     inst_simple "$moddir/dracut-pre-pivot.service" ${dracutsystemunitdir}/dracut-pre-pivot.service
-    ln -fs ../dracut-pre-pivot.service "${initdir}${dracutsystemunitdir}/basic.target.wants/dracut-pre-pivot.service"
+    ln -fs ../dracut-pre-pivot.service "${initdir}${dracutsystemunitdir}/dracut.target.wants/dracut-pre-pivot.service"
 
-    inst_simple "$moddir/udevadm-cleanup-db.service" ${dracutsystemunitdir}/udevadm-cleanup-db.service
-    mkdir -p "${initdir}${dracutsystemunitdir}/initrd-switch-root.target.requires"
-    ln -fs ../udevadm-cleanup-db.service "${initdir}${dracutsystemunitdir}/initrd-switch-root.target.requires/udevadm-cleanup-db.service"
+    ln -fs ../initrd-parse-etc.service "${initdir}${dracutsystemunitdir}/dracut.target.wants/initrd-parse-etc.service"
 
-    inst_script "$moddir/service-to-run.sh" "${systemdutildir}/system-generators/service-to-run"
     inst_rules 99-systemd.rules
+
+    for i in \
+        emergency.target \
+        dracut-emergency.service \
+        rescue.service \
+        systemd-ask-password-console.service \
+        systemd-ask-password-plymouth.service \
+        ; do
+        mkdir -p "${initdir}${dracutsystemunitdir}/${i}.wants"
+        ln_r "${systemdsystemunitdir}/systemd-vconsole-setup.service" \
+            "${dracutsystemunitdir}/${i}.wants/systemd-vconsole-setup.service"
+    done
 
     # turn off RateLimit for journal
     {

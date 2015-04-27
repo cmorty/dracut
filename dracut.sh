@@ -235,6 +235,30 @@ read_arg() {
     fi
 }
 
+
+dropindirs_sort()
+{
+    suffix=$1; shift
+    args=("$@")
+    files=$(
+        while (( $# > 0 )); do
+            for i in ${1}/*${suffix}; do
+                [[ -f $i ]] && echo ${i##*/}
+            done
+            shift
+        done | sort -Vu
+    )
+
+    for f in $files; do
+        for d in "${args[@]}"; do
+            if [[ -f "$d/$f" ]]; then
+                echo "$d/$f"
+                continue 2
+            fi
+        done
+    done
+}
+
 verbosity_mod_l=0
 unset kernel
 unset outfile
@@ -465,11 +489,9 @@ fi
 [[ -f $conffile ]] && . "$conffile"
 
 # source our config dir
-if [[ $confdir && -d $confdir ]]; then
-    for f in "$confdir"/*.conf; do
-        [[ -e $f ]] && . "$f"
-    done
-fi
+for f in $(dropindirs_sort ".conf" "$confdir" "$dracutbasedir/dracut.conf.d"); do
+    [[ -e $f ]] && . "$f"
+done
 
 # these optins add to the stuff in the config file
 if (( ${#add_dracutmodules_l[@]} )); then
@@ -689,10 +711,11 @@ esac
 
 abs_outfile=$(readlink -f "$outfile") && outfile="$abs_outfile"
 
-[[ -f $srcmods/modules.dep ]] || {
-    dfatal "$srcmods/modules.dep is missing. Did you run depmod?"
-    exit 1
-}
+if [[ -d $srcmods ]]; then
+    [[ -f $srcmods/modules.dep ]] || {
+      dwarn "$srcmods/modules.dep is missing. Did you run depmod?"
+    }
+fi
 
 if [[ -f $outfile && ! $force ]]; then
     dfatal "Will not override existing initramfs ($outfile) without --force"
@@ -766,18 +789,18 @@ if [[ $hostonly ]]; then
 fi
 
 _get_fs_type() (
-    [[ $1 ]] || return 1
+    [[ $1 ]] || return
     if [[ -b $1 ]] && get_fs_env $1; then
         echo "$(readlink -f $1)|$ID_FS_TYPE"
-        return 0
+        return 1
     fi
     if [[ -b /dev/block/$1 ]] && get_fs_env /dev/block/$1; then
         echo "$(readlink -f /dev/block/$1)|$ID_FS_TYPE"
-        return 0
+        return 1
     fi
     if fstype=$(find_dev_fstype $1); then
         echo "$1|$fstype"
-        return 0
+        return 1
     fi
     return 1
 )
@@ -833,7 +856,7 @@ if [[ $prefix ]]; then
 fi
 
 if [[ $kernel_only != yes ]]; then
-    for d in usr/bin usr/sbin bin etc lib sbin tmp usr var var/log $libdirs; do
+    for d in usr/bin usr/sbin bin etc lib sbin tmp usr var $libdirs; do
         [[ -e "${initdir}${prefix}/$d" ]] && continue
         if [ -L "/$d" ]; then
             inst_symlink "/$d" "${prefix}/$d"
@@ -852,6 +875,7 @@ if [[ $kernel_only != yes ]]; then
 
     ln -sfn ../run "$initdir/var/run"
     ln -sfn ../run/lock "$initdir/var/lock"
+    ln -sfn ../run/log "$initdir/var/log"
 else
     for d in lib "$libdir"; do
         [[ -e "${initdir}${prefix}/$d" ]] && continue
@@ -1079,10 +1103,11 @@ fi
 rm -f "$outfile"
 dinfo "*** Creating image file ***"
 if ! ( umask 077; cd "$initdir"; find . |cpio -R 0:0 -H newc -o --quiet| \
-    $compress > "$outfile"; ); then
-    dfatal "dracut: creation of $outfile failed"
+    $compress > "$outfile.$$"; ); then
+    dfatal "dracut: creation of $outfile.$$ failed"
     exit 1
 fi
+mv $outfile.$$ $outfile
 dinfo "*** Creating image file done ***"
 
 dinfo "Wrote $outfile:"

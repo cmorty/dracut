@@ -86,7 +86,7 @@ Requires: udev > 166
 Requires: kbd kbd-misc
 %if 0%{?fedora} || 0%{?rhel} > 6
 Requires: util-linux >= 2.21
-Conflicts: systemd < 187
+Conflicts: systemd < 198
 %else
 Requires: util-linux-ng >= 2.21
 %endif
@@ -95,6 +95,8 @@ Requires: util-linux-ng >= 2.21
 Conflicts: initscripts < 8.63-1
 Conflicts: plymouth < 0.8.0-0.2009.29.09.19.1
 %endif
+
+Conflicts: mdadm < 3.2.6-14
 
 %description
 dracut contains tools to create a bootable initramfs for 2.6 Linux kernels.
@@ -194,6 +196,11 @@ rm -fr $RPM_BUILD_ROOT/%{dracutlibdir}/modules.d/01fips
 rm -fr $RPM_BUILD_ROOT/%{dracutlibdir}/modules.d/02fips-aesni
 %endif
 
+%if %{defined _unitdir}
+# for systemd, better use systemd-bootchart
+rm -fr $RPM_BUILD_ROOT/%{dracutlibdir}/modules.d/00bootchart
+%endif
+
 # we do not support dash in the initramfs
 rm -fr $RPM_BUILD_ROOT/%{dracutlibdir}/modules.d/00dash
 
@@ -215,12 +222,12 @@ touch $RPM_BUILD_ROOT%{_localstatedir}/log/dracut.log
 mkdir -p $RPM_BUILD_ROOT%{_sharedstatedir}/initramfs
 
 %if 0%{?fedora} || 0%{?rhel} || 0%{?suse_version}
-install -m 0644 dracut.conf.d/fedora.conf.example $RPM_BUILD_ROOT/etc/dracut.conf.d/01-dist.conf
-install -m 0644 dracut.conf.d/fips.conf.example $RPM_BUILD_ROOT/etc/dracut.conf.d/40-fips.conf
+install -m 0644 dracut.conf.d/fedora.conf.example $RPM_BUILD_ROOT%{dracutlibdir}/dracut.conf.d/01-dist.conf
+install -m 0644 dracut.conf.d/fips.conf.example $RPM_BUILD_ROOT%{dracutlibdir}/dracut.conf.d/40-fips.conf
 %endif
 
 %if 0%{?suse_version}
-install -m 0644 dracut.conf.d/suse.conf.example   $RPM_BUILD_ROOT/etc/dracut.conf.d/01-dist.conf
+install -m 0644 dracut.conf.d/suse.conf.example   $RPM_BUILD_ROOT%{dracutlibdir}/dracut.conf.d/01-dist.conf
 %endif
 
 %if 0%{?fedora} <= 12 && 0%{?rhel} < 6 && 0%{?suse_version} <= 9999
@@ -258,9 +265,10 @@ rm -rf $RPM_BUILD_ROOT
 %{dracutlibdir}/dracut-install
 %config(noreplace) /etc/dracut.conf
 %if 0%{?fedora} || 0%{?suse_version} || 0%{?rhel}
-%config /etc/dracut.conf.d/01-dist.conf
+%{dracutlibdir}/dracut.conf.d/01-dist.conf
 %endif
 %dir /etc/dracut.conf.d
+%dir %{dracutlibdir}/dracut.conf.d
 %{_mandir}/man8/dracut.8*
 %{_mandir}/man8/*service.8*
 %if 0%{?fedora} > 12 || 0%{?rhel} >= 6 || 0%{?suse_version} > 9999
@@ -270,7 +278,11 @@ rm -rf $RPM_BUILD_ROOT
 %{_mandir}/man7/dracut.kernel.7*
 %{_mandir}/man7/dracut.cmdline.7*
 %{_mandir}/man5/dracut.conf.5*
+%if %{defined _unitdir}
+%{dracutlibdir}/modules.d/00systemd-bootchart
+%else
 %{dracutlibdir}/modules.d/00bootchart
+%endif
 %{dracutlibdir}/modules.d/04watchdog
 %{dracutlibdir}/modules.d/05busybox
 %{dracutlibdir}/modules.d/10i18n
@@ -324,6 +336,9 @@ rm -rf $RPM_BUILD_ROOT
 %{_unitdir}/dracut-shutdown.service
 %{_unitdir}/shutdown.target.wants/dracut-shutdown.service
 %endif
+%if 0%{?fedora} || 0%{?rhel} > 6
+%{_prefix}/lib/kernel/install.d/50-dracut.install
+%endif
 
 %files network
 %defattr(-,root,root,0755)
@@ -343,7 +358,7 @@ rm -rf $RPM_BUILD_ROOT
 %files fips
 %defattr(-,root,root,0755)
 %{dracutlibdir}/modules.d/01fips
-%config(noreplace) /etc/dracut.conf.d/40-fips.conf
+%{dracutlibdir}/dracut.conf.d/40-fips.conf
 %endif
 
 %files fips-aesni
