@@ -5,3 +5,10 @@ if [ -x /lib/udev/vol_id ]; then
 else
     inst_rules "$moddir/64-lvm.rules" 64-device-mapper.rules
 fi
+
+if [[ $hostonly ]]; then 
+    [ -f /etc/lvm/lvm.conf ] && inst /etc/lvm/lvm.conf
+fi
+
+inst "$moddir/lvm_scan.sh" /sbin/lvm_scan
+inst_hook cmdline 30 "$moddir/parse-lvm.sh"

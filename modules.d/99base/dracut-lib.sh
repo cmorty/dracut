@@ -8,6 +8,20 @@ getarg() {
     return 1
 }
 
+getargs() {
+    local o line found
+    [ "$CMDLINE" ] || read CMDLINE </proc/cmdline;
+    for o in $CMDLINE; do
+	[ "$o" = "$1" ] && return 0
+	if [ "${o%%=*}" = "${1%=}" ]; then
+	    echo -n "${o#*=} "; 
+	    found=1;
+	fi
+    done
+    [ -n "$found" ] && return 0
+    return 1
+}
+
 source_all() {
     local f
     [ "$1" ] && [  -d "/$1" ] || return
@@ -15,13 +29,38 @@ source_all() {
 }
 
 die() {
-    printf "<1>FATAL: $1\n" > /dev/kmsg
-    printf "<1>Refusing to continue\n" > /dev/kmsg
+    {
+        echo "<1>dracut: FATAL: $@";
+        echo "<1>dracut: Refusing to continue";
+    } > /dev/kmsg
+
+    { 
+        echo "dracut: FATAL: $@";
+        echo "dracut: Refusing to continue";
+    } >&2
+    
     exit 1
 }
 
 warn() {
-    printf "<1>Warning: $1\n" > /dev/kmsg
+    echo "<4>dracut Warning: $@" > /dev/kmsg
+    echo "dracut Warning: $@" >&2
+}
+
+info() {
+    if [ -z "$DRACUT_QUIET" ]; then
+	DRACUT_QUIET="no"
+	getarg quiet && DRACUT_QUIET="yes"
+    fi
+    echo "<6>dracut: $@" > /dev/kmsg
+    [ "$DRACUT_QUIET" != "yes" ] && \
+	echo "dracut: $@" 
+}
+
+vinfo() {
+    while read line; do 
+        info $line;
+    done
 }
 
 check_occurances() {

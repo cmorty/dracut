@@ -1,4 +1,4 @@
-VERSION=0.4
+VERSION=0.5
 GITVERSION=$(shell [ -d .git ] && git rev-list  --abbrev-commit  -n 1 HEAD  |cut -b 1-8)
 
 prefix = /usr
@@ -22,6 +22,7 @@ install:
 	mkdir -p $(DESTDIR)$(pkglibdir)/modules.d
 	mkdir -p $(DESTDIR)$(mandir)/man8
 	install -m 0755 dracut $(DESTDIR)$(sbindir)/dracut
+	install -m 0755 dracut-gencmdline $(DESTDIR)$(sbindir)/dracut-gencmdline
 	install -m 0755 modules.d/99base/switch_root $(DESTDIR)$(sbindir)/switch_root
 	install -m 0644 dracut.conf $(DESTDIR)$(sysconfdir)/dracut.conf
 	install -m 0755 dracut-functions $(DESTDIR)$(pkglibdir)/dracut-functions
@@ -33,6 +34,7 @@ clean:
 	rm -f *~
 	rm -f modules.d/99base/switch_root
 	rm -f test-*.img
+	rm -f dracut-*.rpm dracut-*.tar.bz2
 	make -C test clean
 
 archive: dracut-$(VERSION)-$(GITVERSION).tar.bz2
@@ -46,7 +48,7 @@ dracut-$(VERSION)-$(GITVERSION).tar.bz2:
 	git archive --format=tar HEAD --prefix=dracut-$(VERSION)-$(GITVERSION)/ |bzip2 > dracut-$(VERSION)-$(GITVERSION).tar.bz2
 
 
-rpm: dracut-$(VERSION).tar.bz2
+rpm: clean dracut-$(VERSION).tar.bz2
 	rpmbuild --define "_topdir $$PWD" --define "_sourcedir $$PWD" --define "_specdir $$PWD" --define "_srcrpmdir $$PWD" --define "_rpmdir $$PWD" -ba dracut.spec 
 	rm -fr BUILD BUILDROOT
 
@@ -61,5 +63,5 @@ check: all
 	make -C test check
 
 testimage: all
-	./dracut -l -f test-$(shell uname -r).img $(shell uname -r)
+	./dracut -l -a debug -f test-$(shell uname -r).img $(shell uname -r)
 	@echo wrote  test-$(shell uname -r).img 
