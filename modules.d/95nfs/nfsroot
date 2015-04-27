@@ -63,19 +63,11 @@ netif="$1"
 root="$2"
 NEWROOT="$3"
 
-# If it's not nfs we don't continue
+# Continue if nfs prefix
 case "${root%%:*}" in
     nfs|nfs4);;
     *) return;;
 esac
-
-# Ugly: root=nfs[4] requires dhcp root-path
-if [ "$root" = "nfs" ] || [ "$root" = "nfs4" ] ; then
-    # No need to check if the file exists. ip cmdline parser takes care of this
-    . /tmp/dhclient.$netif.dhcpopts
-    [ -z "$new_root_path" ] && die "Required dhcp option root-path not available"
-    root=$root:$new_root_path
-fi 
 
 root_to_var $root
 
@@ -87,8 +79,8 @@ root_to_var $root
 #already takes care of nfs:... formatted root-path
 [ -z "$path" ] && root_to_var $nfs:$new_root_path
 
-#Empty path defaults to "/tftpboot/%s"
-[ -z "$path" ] && path="/tftpboot/%s"
+#Empty path defaults to "/tftpboot/%s" only in nfsroot.txt legacy mode
+[ -z "$path" ] && [ "$(getarg root=)" = "/dev/nfs" ] && path="/tftpboot/%s"
 
 if [ -z "$server" ] ; then
     # XXX new_dhcp_next_server is unconfirmed this is an assumption
