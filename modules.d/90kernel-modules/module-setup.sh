@@ -36,13 +36,13 @@ installkernel() {
         }
 
         hostonly='' instmods sr_mod sd_mod scsi_dh ata_piix \
-            pcmcia usb_storage \
             ehci-hcd ehci-pci ehci-platform ohci-hcd uhci-hcd xhci-hcd hid_generic \
             unix
 
         instmods yenta_socket scsi_dh_rdac scsi_dh_emc \
             atkbd i8042 usbhid hid-apple hid-sunplus hid-cherry hid-logitech \
-            hid-logitech-dj hid-microsoft firewire-ohci
+            hid-logitech-dj hid-microsoft firewire-ohci \
+            pcmcia usb_storage
 
         if [[ "$(uname -p)" == arm* ]]; then
             # arm specific modules
@@ -65,13 +65,12 @@ installkernel() {
                     instmods '=fs'
             fi
         else
-            inst_fs() {
-                [[ $2 ]] || return 1
-                hostonly='' instmods $2
-            }
-            for_each_host_dev_fs inst_fs
+            for i in $(host_fs_all); do
+                hostonly='' instmods $i
+            done
         fi
     fi
+    :
 }
 
 install() {

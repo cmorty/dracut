@@ -1,4 +1,4 @@
-VERSION=026
+VERSION=027
 GITVERSION=$(shell [ -d .git ] && git rev-list  --abbrev-commit  -n 1 HEAD  |cut -b 1-8)
 
 -include Makefile.inc
@@ -11,13 +11,15 @@ sysconfdir ?= ${prefix}/etc
 bindir ?= ${prefix}/bin
 mandir ?= ${prefix}/share/man
 CFLAGS ?= -O2 -g -Wall
-CFLAGS += -std=gnu99
+CFLAGS += -std=gnu99  -D_FILE_OFFSET_BITS=64
+bashcompletiondir ?= ${datadir}/bash-completion/completions
 
 man1pages = lsinitrd.1
 
 man5pages = dracut.conf.5
 
-man7pages = dracut.cmdline.7
+man7pages = dracut.cmdline.7 \
+            dracut.bootup.7
 
 man8pages = dracut.8 \
             dracut-catimages.8 \
@@ -28,8 +30,7 @@ man8pages = dracut.8 \
             modules.d/98systemd/dracut-pre-mount.service.8 \
             modules.d/98systemd/dracut-pre-pivot.service.8 \
             modules.d/98systemd/dracut-pre-trigger.service.8 \
-            modules.d/98systemd/dracut-pre-udev.service.8 \
-            modules.d/98systemd/udevadm-cleanup-db.service.8
+            modules.d/98systemd/dracut-pre-udev.service.8
 
 manpages = $(man1pages) $(man5pages) $(man7pages) $(man8pages)
 
@@ -112,12 +113,29 @@ endif
 		mkdir -p $(DESTDIR)$(systemdsystemunitdir)/shutdown.target.wants; \
 		ln -s ../dracut-shutdown.service \
 		$(DESTDIR)$(systemdsystemunitdir)/shutdown.target.wants/dracut-shutdown.service; \
+		mkdir -p $(DESTDIR)$(systemdsystemunitdir)/initrd.target.wants; \
+		for i in \
+		    dracut-cmdline.service \
+		    dracut-initqueue.service \
+		    dracut-mount.service \
+		    dracut-pre-mount.service \
+		    dracut-pre-pivot.service \
+		    dracut-pre-trigger.service \
+		    dracut-pre-udev.service \
+		    ; do \
+			install -m 0644 modules.d/98systemd/$$i $(DESTDIR)$(systemdsystemunitdir); \
+			ln -s ../$$i \
+			$(DESTDIR)$(systemdsystemunitdir)/initrd.target.wants/$i; \
+		done \
 	fi
 	if [ -f install/dracut-install ]; then \
 		install -m 0755 install/dracut-install $(DESTDIR)$(pkglibdir)/dracut-install; \
 	fi
 	mkdir -p $(DESTDIR)${prefix}/lib/kernel/install.d
 	install -m 0755 50-dracut.install $(DESTDIR)${prefix}/lib/kernel/install.d/50-dracut.install
+	install -m 0755 51-dracut-rescue.install $(DESTDIR)${prefix}/lib/kernel/install.d/51-dracut-rescue.install
+	mkdir -p $(DESTDIR)${bashcompletiondir}
+	install -m 0644 dracut-bash-completion.sh $(DESTDIR)${bashcompletiondir}/dracut
 
 dracut-version.sh:
 	@echo "DRACUT_VERSION=$(VERSION)-$(GITVERSION)" > dracut-version.sh

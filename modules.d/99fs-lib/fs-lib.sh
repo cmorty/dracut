@@ -220,9 +220,9 @@ write_fs_tab() {
     [ -z "$_rootfstype" ] && _rootfstype="auto"
 
     if [ -z "$_rootflags" ]; then
-        _rootflags="ro"
+        _rootflags="ro,x-initrd.mount"
     else
-        _rootflags="ro,$_rootflags"
+        _rootflags="ro,$_rootflags,x-initrd.mount"
     fi
 
     _rw=0
@@ -245,6 +245,6 @@ write_fs_tab() {
 
     if type systemctl >/dev/null 2>/dev/null; then
         systemctl daemon-reload
-        systemctl --no-block start initrd-fs.target
+        systemctl --no-block start initrd-root-fs.target
     fi
 }
