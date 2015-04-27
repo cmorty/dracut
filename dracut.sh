@@ -307,7 +307,7 @@ unset GREP_OPTIONS
 
 [[ $dracutbasedir ]] || dracutbasedir=/usr/lib/dracut
 
-[[ $allowlocal && -f "$(readlink -f ${0%/*})/dracut-functions" ]] && \
+[[ $allowlocal && -f "$(readlink -f ${0%/*})/dracut-functions.sh" ]] && \
     dracutbasedir="$(readlink -f ${0%/*})"
 
 # if we were not passed a config file, try the default one
@@ -436,10 +436,10 @@ fi
 [[ $hostonly = yes ]] && hostonly="-h"
 [[ $hostonly != "-h" ]] && unset hostonly
 
-if [[ -f $dracutbasedir/dracut-functions ]]; then
-    . $dracutbasedir/dracut-functions
+if [[ -f $dracutbasedir/dracut-functions.sh ]]; then
+    . $dracutbasedir/dracut-functions.sh
 else
-    echo "Cannot find $dracutbasedir/dracut-functions." >&2
+    echo "Cannot find $dracutbasedir/dracut-functions.sh." >&2
     echo "Are you running from a git checkout?" >&2
     echo "Try passing -l as an argument to $0" >&2
     exit 1
@@ -452,7 +452,7 @@ if (( ${BASH_VERSINFO[0]} < 3 ||
     exit 1
 fi
 
-dracutfunctions=$dracutbasedir/dracut-functions
+dracutfunctions=$dracutbasedir/dracut-functions.sh
 export dracutfunctions
 
 if (( ${#drivers_l[@]} )); then
@@ -477,12 +477,12 @@ if (( ${#omit_drivers_l[@]} )); then
 fi
 omit_drivers=${omit_drivers/-/_}
 
-unset omit_drivers_corrected
+omit_drivers_corrected=""
 for d in $omit_drivers; do
     strstr " $drivers $add_drivers " " $d " && continue
-    omit_drivers_corrected+=" $d "
+    omit_drivers_corrected+="$d|"
 done
-omit_drivers=$omit_drivers_corrected
+omit_drivers="${omit_drivers_corrected%|}"
 unset omit_drivers_corrected
 
 
@@ -642,18 +642,18 @@ if [[ $prefix ]]; then
 fi
 
 if [[ $kernel_only != yes ]]; then
-    for d in bin etc lib "$libdir" sbin tmp usr var var/log usr/bin usr/sbin; do
+    for d in usr/bin usr/sbin bin etc lib "$libdir" sbin tmp usr var var/log; do
         [[ -e "${initdir}${prefix}/$d" ]] && continue
-        if [ -h "/$d" ]; then
-            inst "/$d" "${prefix}/$d"
+        if [ -L "/$d" ]; then
+            inst_symlink "/$d" "${prefix}/$d"
         else
             mkdir -m 0755 -p "${initdir}${prefix}/$d"
         fi
     done
 
     for d in dev proc sys sysroot root run run/lock run/initramfs; do
-        if [ -h "/$d" ]; then
-            inst "/$d"
+        if [ -L "/$d" ]; then
+            inst_symlink "/$d"
         else
             mkdir -m 0755 -p "$initdir/$d"
         fi
@@ -672,7 +672,9 @@ else
     done
 fi
 
-mkdir -p "${initdir}/etc/cmdline.d"
+if [[ $kernel_only != yes ]]; then
+    mkdir -p "${initdir}/etc/cmdline.d"
+fi
 
 mods_to_load=""
 # check all our modules to see if they should be sourced.
@@ -737,20 +739,20 @@ while pop include_src src && pop include_target tgt; do
     fi
 done
 
-for item in $install_items; do
-    dracut_install -o "$item"
-done
-unset item
-
-while pop fstab_lines line; do
-    echo "$line 0 0" >> "${initdir}/etc/fstab"
-done
-
-for f in $add_fstab; do
-    cat $f >> "${initdir}/etc/fstab"
-done
-
 if [[ $kernel_only != yes ]]; then
+    for item in $install_items; do
+        dracut_install -o "$item"
+    done
+    unset item
+
+    while pop fstab_lines line; do
+        echo "$line 0 0" >> "${initdir}/etc/fstab"
+    done
+
+    for f in $add_fstab; do
+        cat $f >> "${initdir}/etc/fstab"
+    done
+
     # make sure that library links are correct and up to date
     for f in /etc/ld.so.conf /etc/ld.so.conf.d/*; do
         [[ -f $f ]] && inst_simple "$f"
@@ -793,11 +795,14 @@ type hardlink &>/dev/null && {
 }
 
 if strstr "$modules_loaded" " fips " && command -v prelink >/dev/null; then
-    for i in $initdir/bin/* \
-       $initdir/sbin/* \
-       $initdir/usr/bin/* \
-       $initdir/usr/sbin/*; do
-       [ -x $i ] && prelink -u $i &>/dev/null
+    for dir in "$initdir/bin" \
+       "$initdir/sbin" \
+       "$initdir/usr/bin" \
+       "$initdir/usr/sbin"; do
+        [[ -L "$dir" ]] && continue
+        for i in "$dir"/*; do
+            [[ -x $i ]] && prelink -u $i &>/dev/null
+        done
     done
 fi
 
