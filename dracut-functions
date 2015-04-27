@@ -165,8 +165,11 @@ get_fs_type() (
         echo "nfs"
         return
     fi
-    get_fs_env $1 || return
-    echo $ID_FS_TYPE
+    if get_fs_env $1; then
+        echo $ID_FS_TYPE
+        return
+    fi
+    find_dev_fstype $1
 )
 
 get_fs_uuid() (
@@ -174,22 +177,27 @@ get_fs_uuid() (
     echo $ID_FS_UUID
 )
 
-# finds the major:minor of the block device backing the root filesystem.
+
+get_maj_min() {
+    local _dev
+    _dev=$(stat -L -c '$((0x%t)):$((0x%T))' "$1" 2>/dev/null)
+    _dev=$(eval "echo $_dev")
+    echo $_dev
+}
+
 find_block_device() {
     local _x _mpt _majmin _dev _fs _maj _min
     if [[ $use_fstab != yes ]]; then
         while read _x _x _majmin _x _mpt _x _x _fs _dev _x; do
+            [[ $_mpt = $1 ]] || continue
             [[ $_fs = nfs ]] && { echo $_dev; return 0;}
             [[ $_fs = nfs3 ]] && { echo $_dev; return 0;}
             [[ $_fs = nfs4 ]] && { echo $_dev; return 0;}
             [[ $_fs = btrfs ]] && {
-                ls -nLl "$_dev" | {
-                    read _x _x _x _x _maj _min _x
-                    _maj=${_maj//,/}
-                    echo $_maj:$_min
-                } && return 0
+                get_maj_min $_dev
+                return 0;
             }
-            if [[ $_mpt = $1 ]] && [[ ${_majmin#0:} = $_majmin ]]; then
+            if [[ ${_majmin#0:} = $_majmin ]]; then
                 echo $_majmin
                 return 0 # we have a winner!
             fi
@@ -215,7 +223,43 @@ find_block_device() {
     return 1
 }
 
+find_dev_fstype() {
+    local _x _mpt _majmin _dev _fs _maj _min
+    while read _x _x _majmin _x _mpt _x _x _fs _dev _x; do
+        [[ $_dev = $1 ]] || continue
+        echo -n $_fs;
+        return 0;
+    done < /proc/self/mountinfo
+
+    # fall back to /etc/fstab
+    while read _dev _mpt _fs _x; do
+        [[ $_dev = $1 ]] || continue
+        echo -n $_fs;
+        return 0;
+    done < /etc/fstab
+
+    return 1
+}
+
+# finds the major:minor of the block device backing the root filesystem.
 find_root_block_device() { find_block_device /; }
+
+for_each_host_dev_fs()
+{
+    local _func="$1"
+    local _dev
+    local _fs
+    for f in ${host_fs_types[@]}; do
+        OLDIFS="$IFS"
+        IFS="|"
+        set -- $f
+        IFS="$OLDIFS"
+        _dev="$1"
+        [[ -b "$_dev" ]] || continue
+        _fs="$2"
+        $_func $_dev $_fs
+    done
+}
 
 # Walk all the slave relationships for a given block device.
 # Stop when our helper function returns success
@@ -320,7 +364,7 @@ inst_simple() {
         inst "${_src%/*}/.${_src##*/}.hmac" "${target%/*}/.${target##*/}.hmac"
     fi
     ddebug "Installing $_src"
-    cp --sparse=always -pfL "$_src" "${initdir}/$target" 
+    cp --sparse=always -pfL "$_src" "${initdir}/$target"
 }
 
 # find symlinks linked to given library file
@@ -387,7 +431,7 @@ find_binary() {
         fi
     fi
 
-    PATH="/usr/sbin:/sbin:/usr/bin:/bin" type -P $1
+    type -P $1
 }
 
 # Same as above, but specialized to install binary executables.
@@ -397,8 +441,8 @@ inst_binary() {
 
     _bin=$(find_binary "$1") || return 1
     _target=${2:-$_bin}
-    inst_symlink $_bin $_target && return 0
     [[ -e $initdir/$_target ]] && return 0
+    inst_symlink $_bin $_target && return 0
 
     # If the binary being installed is also a library, add it to the loop.
     _so_regex='([^ ]*/lib[^/]*/[^ ]*\.so[^ ]*)'
@@ -420,18 +464,16 @@ inst_binary() {
 
         # See if we are loading an optimized version of a shared lib.
         if [[ $_file =~ $_lib_regex ]]; then
-            _tlibdir=${BASH_REMATCH[1]}
-            _base=${_file##*/}
-            # Prefer nosegneg libs to unoptimized ones.
-            for _f in "$_tlibdir/i686/nosegneg" "$_tlibdir"; do
+           _tlibdir=${BASH_REMATCH[1]}
+           _base=${_file##*/}
+           # Prefer nosegneg libs to unoptimized ones.
+            for _f in "$_tlibdir/i686/nosegneg"; do
                 [[ -e $_f/$_base ]] || continue
-                _file=$_f/$_base
+                inst_library $_f/$_base
                 break
             done
-            inst_library "$_file" "$_tlibdir/$_base"
-        else
-            inst_library "$_file"
         fi
+        inst_library "$_file"
     done
 
     # Install the binary if it wasn't handled in the above loop.
@@ -455,21 +497,48 @@ inst_script() {
 
 # same as above, but specialized for symlinks
 inst_symlink() {
-    local _src=$1 _target=$initdir/${2:-$1} _realsrc
+    local _src=$1 _target=${2:-$1} _realsrc
     strstr "$1" "/" || return 1
     [[ -L $1 ]] || return 1
-    [[ -L $_target ]] && return 0
+    [[ -L $initdir/$_target ]] && return 0
     _realsrc=$(readlink -f "$_src")
-    [[ $_realsrc = ${_realsrc##*/} ]] && _realsrc=${_src%/*}/$_realsrc
+    [[ -d ${_target%/*} ]] && _target=$(readlink -f ${_target%/*})/${_target##*/}
     if [[ -d $_realsrc ]]; then
         inst_dir "$_realsrc"
     else
-        inst "$_realsrc" && mkdir -m 0755 -p "${_target%/*}" 
+        {
+            local _t
+            _t=${2:-$1}
+            _t="${_t%/*}"
+            [[ $_t ]] && inst_dir "$_t"
+            inst "$_realsrc"
+        }
     fi
     if [[ -e "${_src}" ]]; then
-        ln -sfn $(convert_abs_rel "${_src}" "${_realsrc}") "$_target"
+        ln -sfn $(convert_abs_rel "${_target}" "${_realsrc}") "$initdir/$_target"
     else
-        ln -sfn "$_realsrc" "$_target"
+        ln -sfn "$_realsrc" "$initdir/$_target"
+    fi
+}
+
+# attempt to install any programs specified in a udev rule
+inst_rule_programs() {
+    local _prog _bin
+
+    if grep -qE 'PROGRAM==?"[^ "]+' "$1"; then
+        for _prog in $(grep -E 'PROGRAM==?"[^ "]+' "$1" | sed -r 's/.*PROGRAM==?"([^ "]+).*/\1/'); do
+            if [ -x /lib/udev/$_prog ]; then
+                _bin=/lib/udev/$_prog
+            else
+                _bin=$(find_binary "$_prog") || {
+                    dinfo "Skipping program $_prog using in udev rule $(basename $1) as it cannot be found"
+                    continue;
+                }
+            fi
+
+            #dinfo "Installing $_bin due to it's use in the udev rule $(basename $1)"
+            dracut_install "$_bin"
+        done
     fi
 }
 
@@ -486,6 +555,7 @@ inst_rules() {
                 if [[ -f $r/$_rule ]]; then
                     _found="$r/$_rule"
                     inst_simple "$_found"
+                    inst_rule_programs "$_found"
                 fi
             done
         fi
@@ -493,6 +563,7 @@ inst_rules() {
             if [[ -f ${r}$_rule ]]; then
                 _found="${r}$_rule"
                 inst_simple "$_found" "$_target/${_found##*/}"
+                inst_rule_programs "$_found"
             fi
         done
         [[ $_found ]] || dinfo "Skipping udev rule: $_rule"
@@ -521,7 +592,7 @@ inst() {
 
 [[ $hookdirs ]] || {
     hookdirs="cmdline pre-udev pre-trigger netroot initqueue pre-mount"
-    hookdirs+=" pre-pivot mount emergency shutdown-emergency shutdown"
+    hookdirs+=" pre-pivot mount emergency shutdown-emergency shutdown cleanup"
     export hookdirs
 }
 
@@ -717,6 +788,67 @@ module_installkernel() {
     fi
 }
 
+module_check_mount() {
+    local _moddir=$(echo ${dracutbasedir}/modules.d/??${1})
+    local _ret
+    mount_needs=1
+    [[ -d $_moddir ]] || return 1
+    if [[ ! -f $_moddir/module-setup.sh ]]; then
+        # if we do not have a check script, we are unconditionally included
+        [[ -x $_moddir/check ]] || return 0
+        mount_needs=1 $_moddir/check 0
+        _ret=$?
+    else
+        unset check depends install installkernel
+        . $_moddir/module-setup.sh
+        is_func check || return 1
+        check 0
+        _ret=$?
+        unset check depends install installkernel
+    fi
+    unset mount_needs
+    return $_ret
+}
+
+check_mount() {
+    local _mod=$1
+    local _moddir=$(echo ${dracutbasedir}/modules.d/??${1})
+    local _ret
+    local _moddep
+    # If we are already scheduled to be loaded, no need to check again.
+    strstr " $mods_to_load " " $_mod " && return 0
+    strstr " $mods_checked_as_dep " " $_mod " && return 1
+
+    # This should never happen, but...
+    [[ -d $_moddir ]] || return 1
+
+    [[ $2 ]] || mods_checked_as_dep+=" $_mod "
+
+    strstr " $omit_dracutmodules " " $_mod " && return 1
+
+    if [ "${#host_fs_types[*]}" -gt 0 ]; then
+        module_check_mount $_mod || return 1
+    else
+        # skip this module
+        return 1
+    fi
+
+    for _moddep in $(module_depends $_mod); do
+        # handle deps as if they were manually added
+        strstr " $add_dracutmodules " " $_moddep " || \
+            add_dracutmodules+=" $_moddep "
+        strstr " $force_add_dracutmodules " " $_moddep " || \
+            force_add_dracutmodules+=" $_moddep "
+        # if a module we depend on fail, fail also
+        check_module $_moddep || return 1
+    done
+
+    strstr " $mods_to_load " " $_mod " || \
+        mods_to_load+=" $_mod "
+
+    return 0
+}
+
 check_module() {
     local _mod=$1
     local _moddir=$(echo ${dracutbasedir}/modules.d/??${1})
@@ -768,14 +900,15 @@ check_module() {
     return 0
 }
 
-check_module_dir() {
+for_each_module_dir() {
     local _modcheck
     local _mod
     local _moddir
-    mods_to_load=""
+    local _func
+    _func=$1
     for _moddir in "$dracutbasedir/modules.d"/[0-9][0-9]*; do
         _mod=${_moddir##*/}; _mod=${_mod#[0-9][0-9]}
-        check_module $_mod 1
+        $_func $_mod 1
     done
 
     # Report any missing dracut modules, the user has specified
@@ -855,6 +988,7 @@ filter_kernel_modules_by_path () (
     if ! [[ $hostonly ]]; then
         _filtercmd='find "$srcmods/kernel/$1" "$srcmods/extra"'
         _filtercmd+=' "$srcmods/weak-updates" -name "*.ko" -o -name "*.ko.gz"'
+        _filtercmd+=' -o -name "*.ko.xz"'
         _filtercmd+=' 2>/dev/null'
     else
         _filtercmd='cut -d " " -f 1 </proc/modules|xargs modinfo -F filename '
@@ -867,13 +1001,17 @@ filter_kernel_modules_by_path () (
                 $2 $initdir/$$.ko && echo "$_modname"
                 rm -f $initdir/$$.ko
                 ;;
+            *.ko.xz) xz -dc "$_modname" > $initdir/$$.ko
+                $2 $initdir/$$.ko && echo "$_modname"
+                rm -f $initdir/$$.ko
+                ;;
         esac
     done
 )
 find_kernel_modules_by_path () (
     if ! [[ $hostonly ]]; then
         find "$srcmods/kernel/$1" "$srcmods/extra" "$srcmods/weak-updates" \
-          -name "*.ko" -o -name "*.ko.gz" 2>/dev/null
+          -name "*.ko" -o -name "*.ko.gz" -o -name "*.ko.xz" 2>/dev/null
     else
         cut -d " " -f 1 </proc/modules \
         | xargs modinfo -F filename -k $kernel 2>/dev/null

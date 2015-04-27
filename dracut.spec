@@ -63,22 +63,18 @@ Requires: bash
 Requires: bzip2
 Requires: coreutils
 Requires: cpio
-Requires: dash
 Requires: filesystem >= 2.1.0
 Requires: findutils
 Requires: grep
 Requires: gzip
-Requires: kbd
-Requires: mktemp >= 1.5-5
 Requires: module-init-tools >= 3.7-9
 Requires: sed
-Requires: tar
 Requires: udev
 Requires: util-linux >= 2.20
 
 %if 0%{?fedora} || 0%{?rhel} > 6
-Requires: initscripts >= 8.63-1
-Requires: plymouth >= 0.8.0-0.2009.29.09.19.1
+Conflicts: initscripts < 8.63-1
+Conflicts: plymouth < 0.8.0-0.2009.29.09.19.1
 %endif
 
 %description
@@ -91,24 +87,6 @@ NFS, iSCSI, NBD, FCoE with the dracut-network package.
 %package network
 Summary: Dracut modules to build a dracut initramfs with network support
 Requires: %{name} = %{version}-%{release}
-Requires: rpcbind
-%if %{with_nbd}
-Requires: nbd
-%endif
-Requires: iproute
-Requires: bridge-utils
-
-%if 0%{?fedora} || 0%{?rhel} > 6
-Requires: iscsi-initiator-utils
-Requires: nfs-utils
-Requires: dhclient
-%endif
-
-%if 0%{?suse_version}
-Requires: dhcp-client
-Requires: nfs-client
-Requires: vlan
-%endif
 Obsoletes: dracut-generic < 008
 Provides:  dracut-generic = %{version}-%{release}
 
@@ -218,6 +196,10 @@ rm $RPM_BUILD_ROOT%{_bindir}/lsinitrd
 mkdir -p $RPM_BUILD_ROOT/etc/logrotate.d
 install -m 0644 dracut.logrotate $RPM_BUILD_ROOT/etc/logrotate.d/dracut_log
 
+# create compat symlink
+mkdir -p $RPM_BUILD_ROOT/sbin
+ln -s /usr/bin/dracut $RPM_BUILD_ROOT/sbin/dracut
+
 %clean
 rm -rf $RPM_BUILD_ROOT
 
@@ -225,6 +207,8 @@ rm -rf $RPM_BUILD_ROOT
 %defattr(-,root,root,0755)
 %doc README HACKING TODO COPYING AUTHORS NEWS dracut.html dracut.png dracut.svg
 %{_bindir}/dracut
+# compat symlink
+/sbin/dracut
 %if 0%{?fedora} > 12 || 0%{?rhel} >= 6 || 0%{?suse_version} > 9999
 %{_bindir}/mkinitrd
 %{_bindir}/lsinitrd
@@ -247,6 +231,7 @@ rm -rf $RPM_BUILD_ROOT
 %{dracutlibdir}/modules.d/05busybox
 %{dracutlibdir}/modules.d/10i18n
 %{dracutlibdir}/modules.d/10rpmversion
+%{dracutlibdir}/modules.d/30convertfs
 %{dracutlibdir}/modules.d/50plymouth
 %{dracutlibdir}/modules.d/90btrfs
 %{dracutlibdir}/modules.d/90crypt
@@ -290,6 +275,7 @@ rm -rf $RPM_BUILD_ROOT
 %{dracutlibdir}/modules.d/90livenet
 %{dracutlibdir}/modules.d/95nbd
 %{dracutlibdir}/modules.d/95nfs
+%{dracutlibdir}/modules.d/95ssh-client
 %{dracutlibdir}/modules.d/45ifcfg
 %{dracutlibdir}/modules.d/95znet
 

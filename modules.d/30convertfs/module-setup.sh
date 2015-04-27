@@ -4,7 +4,7 @@
 
 check() {
     [[ $mount_needs ]] && return 1
-    return 0
+    return 255
 }
 
 depends() {
@@ -12,6 +12,9 @@ depends() {
 }
 
 install() {
-    inst_hook pre-pivot 50 "$moddir/mount-usr.sh"
+    dracut_install bash
+    dracut_install find ldconfig mv rm cp ln 
+    inst_hook pre-pivot 99 "$moddir/do-convertfs.sh"
+    inst "$moddir/convertfs.sh" /usr/bin/convertfs
 }
 

@@ -36,6 +36,7 @@ installkernel() {
                 case "$_fname" in
                     *.ko)    _fcont="$(<        $_fname)" ;;
                     *.ko.gz) _fcont="$(gzip -dc $_fname)" ;;
+                    *.ko.xz) _fcont="$(xz -dc   $_fname)" ;;
                 esac
                 [[   $_fcont =~ $_net_drivers
                 && ! $_fcont =~ iw_handler_get_spy ]] \
@@ -57,7 +58,8 @@ installkernel() {
         [[ $debug ]] && set -x
     }
 
-    find_kernel_modules_by_path drivers/net | net_module_filter | instmods
+    { find_kernel_modules_by_path drivers/net; find_kernel_modules_by_path drivers/s390/net; } \
+        | net_module_filter | instmods
 
     instmods ecb arc4
     # bridge modules

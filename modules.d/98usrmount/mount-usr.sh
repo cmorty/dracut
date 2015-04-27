@@ -11,7 +11,7 @@ mount_usr()
     # check, if we have to mount the /usr filesystem
     while read _dev _mp _fs _opts _rest; do
         if [ "$_mp" = "/usr" ]; then
-            echo "$_dev $NEWROOT/$_mp $_fs ${_opts},ro $_rest"
+            echo "$_dev $NEWROOT/$_mp $_fs ${_opts} $_rest"
             _usr_found="1"
             break
         fi
@@ -19,7 +19,7 @@ mount_usr()
 
     if [ "x$_usr_found" != "x" ]; then
         # we have to mount /usr
-        fsck_single "$_dev" "$_fs" "$_opts"
+        fsck_single "$_dev" "$_fs"
         _ret=$?
         echo $_ret >/run/initramfs/usr-fsck
         if [ $_ret -ne 255 ]; then

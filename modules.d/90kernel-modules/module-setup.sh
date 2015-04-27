@@ -13,6 +13,7 @@ installkernel() {
                 while read _f; do case "$_f" in
                     *.ko)    [[ $(<         $_f) =~ $_blockfuncs ]] && echo "$_f" ;;
                     *.ko.gz) [[ $(gzip -dc <$_f) =~ $_blockfuncs ]] && echo "$_f" ;;
+                    *.ko.xz) [[ $(xz -dc   <$_f) =~ $_blockfuncs ]] && echo "$_f" ;;
                     esac
                 done
             }
@@ -35,7 +36,7 @@ installkernel() {
         hostonly='' instmods usb_storage sdhci sdhci-pci
 
         # install keyboard support
-        hostonly='' instmods atkbd i8042 usbhid hid-apple hid-sunplus hid-cherry hid-logitech hid-microsoft ehci-hcd ohci-hcd uhci-hcd
+        hostonly='' instmods atkbd i8042 usbhid hid-apple hid-sunplus hid-cherry hid-logitech hid-logitech-dj hid-microsoft ehci-hcd ohci-hcd uhci-hcd
         # install unix socket support
         hostonly='' instmods unix
         instmods "=drivers/pcmcia" =ide "=drivers/usb/storage"
@@ -50,7 +51,11 @@ installkernel() {
                 rm -fr ${initdir}/lib/modules/*/kernel/fs/ocfs2
             fi
         else
-            hostonly='' instmods $(get_fs_type "/dev/block/$(find_root_block_device)")
+            inst_fs() {
+                [[ $2 ]] || return 1
+                hostonly='' instmods $2
+            }
+            for_each_host_dev_fs inst_fs
         fi
     else
         hostonly='' instmods $drivers
@@ -64,21 +69,23 @@ installkernel() {
 }
 
 install() {
-    local _f
+    local _f i
     [ -f /etc/modprobe.conf ] && dracut_install /etc/modprobe.conf
-    for i in $(find /etc/modprobe.d/ -type f -name '*.conf'); do
+    for i in $(find -L /etc/modprobe.d/ -maxdepth 1 -type f -name '*.conf'); do
         inst_simple "$i"
     done
     inst_hook cmdline 01 "$moddir/parse-kernel.sh"
+    inst_hook cleanup 20 "$moddir/kernel-cleanup.sh"
     inst_simple "$moddir/insmodpost.sh" /sbin/insmodpost.sh
 
-    local f
-
     for _f in modules.builtin.bin modules.builtin; do
-        [[ $srcmods/$_f ]] && inst_simple "$srcmods/$_f" "/lib/modules/$kernel/$_f" \
-            && break
+        [[ $srcmods/$_f ]] && break
     done || {
         dfatal "No modules.builtin.bin and modules.builtin found!"
         return 1
     }
+
+    for _f in modules.builtin.bin modules.builtin modules.order; do
+        [[ $srcmods/$_f ]] && inst_simple "$srcmods/$_f" "/lib/modules/$kernel/$_f"
+    done
 }

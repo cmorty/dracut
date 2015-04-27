@@ -10,18 +10,17 @@ check() {
     . $dracutfunctions
     [[ $debug ]] && set -x
 
-    is_lvm() { [[ $(get_fs_type /dev/block/$1) = LVM2_member ]]; }
+    check_lvm() {
+        unset DM_VG_NAME
+        unset DM_LV_NAME
+        eval $(udevadm info --query=property --name=$1|egrep '(DM_VG_NAME|DM_LV_NAME)=')
+        [[ ${DM_VG_NAME} ]] && [[ ${DM_LV_NAME} ]] || return
+        echo " rd.lvm.lv=${DM_VG_NAME}/${DM_LV_NAME} " >> "${initdir}/etc/cmdline.d/90lvm.conf"
+    }
 
-    [[ $hostonly ]] && {
-        _rootdev=$(find_root_block_device)
-        if [[ $_rootdev ]]; then
-            # root lives on a block device, so we can be more precise about
-            # hostonly checking
-            check_block_and_slaves is_lvm "$_rootdev" || return 1
-        else
-            # root is not on a block device, use the shotgun approach
-            blkid | grep -q LVM2_member || return 1
-        fi
+    [[ $hostonly ]] || [[ $mount_needs ]] && {
+        for_each_host_dev_fs check_lvm
+        [ -f "${initdir}/etc/cmdline.d/90lvm.conf" ] || return 1
     }
 
     return 0
