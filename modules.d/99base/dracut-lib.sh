@@ -1,38 +1,29 @@
 getarg() {
-    set +x
     local o line
     if [ -z "$CMDLINE" ]; then
-	[ -e /etc/cmdline ] && read CMDLINE_ETC </etc/cmdline;
+        if [ -e /etc/cmdline ]; then
+            while read line; do
+                CMDLINE_ETC="$CMDLINE_ETC $line";
+            done </etc/cmdline;
+        fi
 	read CMDLINE </proc/cmdline;
 	CMDLINE="$CMDLINE $CMDLINE_ETC"
     fi
     for o in $CMDLINE; do
 	[ "$o" = "$1" ] && return 0
-	[ "${o%%=*}" = "${1%=}" ] && { echo ${o#*=}; setdebug; return 0; }
+	[ "${o%%=*}" = "${1%=}" ] && { echo ${o#*=}; return 0; }
     done
-    setdebug
     return 1
 }
 
-setdebug() {
-    if [ -z "$RDDEBUG" ]; then
-        if [ -e /proc/cmdline ]; then
-            RDDEBUG=no
-	    if getarg rdinitdebug; then
-                RDDEBUG=yes 
-            fi
-        fi
-    fi
-    [ "$RDDEBUG" = "yes" ] && set -x 
-}
-
-setdebug
-
 getargs() {
-    set +x
     local o line found
     if [ -z "$CMDLINE" ]; then
-	[ -e /etc/cmdline ] && read CMDLINE_ETC </etc/cmdline;
+	if [ -e /etc/cmdline ]; then
+            while read line; do
+                CMDLINE_ETC="$CMDLINE_ETC $line";
+            done </etc/cmdline;
+        fi
 	read CMDLINE </proc/cmdline;
 	CMDLINE="$CMDLINE $CMDLINE_ETC"
     fi
@@ -43,10 +34,22 @@ getargs() {
 	    found=1;
 	fi
     done
-    [ -n "$found" ] && { setdebug; return 0;}
-    setdebug
-    return 1
+    [ -n "$found" ] && return 0
+    return 1;
 }
+
+setdebug() {
+    if [ -z "$RDDEBUG" ]; then
+        if [ -e /proc/cmdline ]; then
+            RDDEBUG=no
+           if getarg rdinitdebug; then
+                RDDEBUG=yes 
+            fi
+        fi
+    fi
+    [ "$RDDEBUG" = "yes" ] && set -x 
+}
+
 
 source_all() {
     local f
@@ -80,17 +83,23 @@ die() {
     exit 1
 }
 
+check_quiet() {
+    if [ -z "$DRACUT_QUIET" ]; then
+	DRACUT_QUIET="yes"
+	getarg rdinfo && DRACUT_QUIET="no"
+	getarg quiet || DRACUT_QUIET="yes"
+    fi
+}
+
 warn() {
+    check_quiet
     echo "<4>dracut Warning: $@" > /dev/kmsg
-    echo "dracut Warning: $@" >&2
+    [ "$DRACUT_QUIET" != "yes" ] && \
+    	echo "dracut Warning: $@" >&2
 }
 
 info() {
-    if [ -z "$DRACUT_QUIET" ]; then
-	DRACUT_QUIET="no"
-	getarg quiet && DRACUT_QUIET="yes"
-	getarg rdinfo && DRACUT_QUIET="no"
-    fi
+    check_quiet
     echo "<6>dracut: $@" > /dev/kmsg
     [ "$DRACUT_QUIET" != "yes" ] && \
 	echo "dracut: $@" 

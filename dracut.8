@@ -150,6 +150,11 @@ disable LVM detection
 .TP
 .B rd_LVM_VG=<volume group name>
 only activate the volume groups with the given name
+rd_LVM_VG can be specified multiple times on the kernel command line.
+.TP
+.B rd_LVM_LV=<logical volume name>
+only activate the volume groups with the given name
+rd_LVM_LV can be specified multiple times on the kernel command line.
 .TP
 .B rd_NO_LVMCONF
 remove any /etc/lvm/lvm.conf, which may exist in the initramfs
@@ -328,6 +333,9 @@ do not start plymouth. This will not work with encrypted partitions.
 .TP
 .B rdblacklist=<drivername>
 do not load kernel module <drivername>
+.TP
+.B rdloaddriver=<drivername>
+force loading kernel module <drivername>
 
 .SH Debug
 .TP
@@ -361,6 +369,9 @@ debug network scripts in dracut. Output is written to /tmp/
 Any files found in /conf/conf.d/ will be sourced in the initramfs to 
 set initial values. Command line options will override these values 
 set in the configuration files.
+.TP
+.B /etc/cmdline
+Can contain additional command line options.
 
 .SH FILES
 .TP

@@ -1,4 +1,4 @@
-VERSION=003
+VERSION=004
 GITVERSION=$(shell [ -d .git ] && git rev-list  --abbrev-commit  -n 1 HEAD  |cut -b 1-8)
 
 prefix ?= /usr
@@ -31,6 +31,8 @@ install:
 	install -m 0755 dracut $(DESTDIR)$(sbindir)/dracut
 	install -m 0755 dracut-gencmdline $(DESTDIR)$(sbindir)/dracut-gencmdline
 	install -m 0755 dracut-catimages $(DESTDIR)$(sbindir)/dracut-catimages
+	install -m 0755 mkinitrd-dracut.sh $(DESTDIR)$(sbindir)/mkinitrd
+	install -m 0755 lsinitrd $(DESTDIR)$(sbindir)/lsinitrd
 ifeq (1,${WITH_SWITCH_ROOT})
 	install -m 0755 modules.d/99base/switch_root $(DESTDIR)$(sbindir)/switch_root
 endif
@@ -38,6 +40,8 @@ endif
 	install -m 0755 dracut-functions $(DESTDIR)$(pkglibdir)/dracut-functions
 	cp -arx modules.d $(DESTDIR)$(pkglibdir)
 	install -m 0644 dracut.8 $(DESTDIR)$(mandir)/man8
+	install -m 0644 dracut-catimages.8 $(DESTDIR)$(mandir)/man8
+	install -m 0644 dracut-gencmdline.8 $(DESTDIR)$(mandir)/man8
 	install -m 0644 dracut.conf.5 $(DESTDIR)$(mandir)/man5
 ifeq (1,${WITH_SWITCH_ROOT})
 	rm $(DESTDIR)$(pkglibdir)/modules.d/99base/switch_root
