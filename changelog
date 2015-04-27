@@ -1,3 +1,9 @@
+dracut (041-1) unstable; urgency=low
+
+  * PPA-automatic building
+
+ -- Moritz Struebe <morty@gmx.net>  Mon, 27 Apr 2015 17:07:38 +0200
+
 dracut (040+1-1) unstable; urgency=low
 
   * new upstream, Closes: #739794, #758655, #754062, #755271
