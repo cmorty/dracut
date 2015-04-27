@@ -1,8 +1,12 @@
 if [ "${root%%:*}" = "block" ]; then
     (
-    printf 'KERNEL=="%s", RUN+="/sbin/initqueue /bin/mount -t %s -o %s %s %s"\n' \
-	${root#block:/dev/} "$fstype" "$rflags" "${root#block:}" "$NEWROOT"
-    printf 'SYMLINK=="%s", RUN+="/sbin/initqueue /bin/mount -t %s -o %s %s %s"\n' \
-	${root#block:/dev/} "$fstype" "$rflags" "${root#block:}" "$NEWROOT"
+    printf 'KERNEL=="%s", SYMLINK+="root"\n' \
+	${root#block:/dev/} 
+    printf 'SYMLINK=="%s", SYMLINK+="root"\n' \
+	${root#block:/dev/} 
     ) >> /etc/udev/rules.d/99-mount.rules
+    (
+    printf '[ -e "%s" ] && { ln -s "%s" /dev/root; rm "$job"; }\n' \
+	"${root#block:}" "${root#block:}"
+    ) >> /initqueue/blocksymlink.sh
 fi

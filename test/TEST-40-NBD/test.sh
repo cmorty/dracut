@@ -50,7 +50,7 @@ client_test() {
 	-net nic,macaddr=$mac,model=e1000 \
 	-net socket,mcast=230.0.0.1:1236 \
 	-kernel /boot/vmlinuz-$KVERSION \
-	-append "$cmdline $DEBUGFAIL ro quiet console=ttyS0,115200n81" \
+	-append "$cmdline $DEBUGFAIL rdshell ro quiet console=ttyS0,115200n81" \
 	-initrd initramfs.testing
 
     if [[ $? -ne 0 ]] || ! grep -m 1 -q nbd-OK flag.img; then
@@ -184,14 +184,14 @@ make_encrypted_root() {
 	initdir=overlay
 	. $basedir/dracut-functions
 	dracut_install mke2fs poweroff cp umount
-	inst_simple ./create-root.sh /pre-mount/01create-root.sh
+	inst_simple ./create-root.sh /initqueue/01create-root.sh
     )
 
     # create an initramfs that will create the target root filesystem.
     # We do it this way so that we do not risk trashing the host mdraid
     # devices, volume groups, encrypted partitions, etc.
     $basedir/dracut -l -i overlay / \
-	-m "dash crypt lvm mdraid udev-rules base rootfs-block" \
+	-m "dash crypt lvm mdraid udev-rules base rootfs-block kernel-modules" \
 	-d "ata_piix ext2 sd_mod" \
 	-f initramfs.makeroot $KVERSION || return 1
     rm -rf overlay
@@ -287,7 +287,7 @@ test_setup() {
     )
 
     sudo $basedir/dracut -l -i overlay / \
-	-m "dash udev-rules rootfs-block base debug" \
+	-m "dash udev-rules rootfs-block base debug kernel-modules" \
 	-d "ata_piix ext2 sd_mod e1000" \
 	-f initramfs.server $KVERSION || return 1
 

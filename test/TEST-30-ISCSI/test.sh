@@ -37,7 +37,7 @@ run_client() {
   	-net nic,macaddr=52:54:00:12:34:00,model=e1000 \
   	-net socket,mcast=230.0.0.1:1235 \
   	-kernel /boot/vmlinuz-$KVERSION \
-	-append "root=dhcp rw quiet console=ttyS0,115200n81 $DEBUGFAIL" \
+	-append "root=dhcp rw quiet console=ttyS0,115200n81 rdshell $DEBUGFAIL" \
   	-initrd initramfs.testing
     grep -m 1 -q iscsi-OK client.img || return 1
 }
@@ -81,14 +81,14 @@ test_setup() {
 	initdir=overlay
 	. $basedir/dracut-functions
 	dracut_install sfdisk mke2fs poweroff cp umount 
-	inst_simple ./create-root.sh /pre-mount/01create-root.sh
+	inst_simple ./create-root.sh /initqueue/01create-root.sh
     )
  
     # create an initramfs that will create the target root filesystem.
     # We do it this way so that we do not risk trashing the host mdraid
     # devices, volume groups, encrypted partitions, etc.
     $basedir/dracut -l -i overlay / \
-	-m "dash crypt lvm mdraid udev-rules base rootfs-block" \
+	-m "dash crypt lvm mdraid udev-rules base rootfs-block kernel-modules" \
 	-d "ata_piix ext2 sd_mod" \
 	-f initramfs.makeroot $KVERSION || return 1
     rm -rf overlay
