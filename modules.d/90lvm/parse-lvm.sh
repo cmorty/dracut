@@ -1,3 +1,4 @@
+#!/bin/sh
 # -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
 # ex: ts=8 sw=4 sts=4 et filetype=sh
 if [ -e /etc/lvm/lvm.conf ] && ! getargbool 1 rd.lvm.conf -n rd_NO_LVMCONF; then
@@ -10,11 +11,11 @@ if ! getargbool 1 rd.lvm -n rd_NO_LVM; then
 else
     for dev in $(getargs rd.lvm.vg rd_LVM_VG=) $(getargs rd.lvm.lv rd_LVM_LV=); do
         printf '[ -e "/dev/%s" ] || exit 1\n' $dev \
-            >> /initqueue-finished/lvm.sh
+            >> $hookdir/initqueue/finished/lvm.sh
         {
             printf '[ -e "/dev/%s" ] || ' $dev
             printf 'warn "LVM "%s" not found"\n' $dev
-        } >> /emergency/00-lvm.sh
+        } >> $hookdir/emergency/90-lvm.sh
     done
 fi
 

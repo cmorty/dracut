@@ -8,7 +8,7 @@
 # iscsistart needs this.
 #
 
-. /lib/dracut-lib.sh
+type getarg >/dev/null 2>&1 || . /lib/dracut-lib.sh
 
 PATH=$PATH:/sbin:/usr/sbin
 
@@ -151,7 +151,8 @@ handle_netroot()
         iscsi_lun=0
     fi
 
-    echo "InitiatorName='$iscsi_initiator'" > /dev/.initiatorname.iscsi
+    echo "InitiatorName='$iscsi_initiator'" > /run/initiatorname.iscsi
+    ln -s /run/initiatorname.iscsi /dev/.initiatorname.iscsi
 
 # FIXME $iscsi_protocol??
 
@@ -161,10 +162,10 @@ handle_netroot()
     fi
 
     # inject new exit_if_exists
-    echo 'settle_exit_if_exists="--exit-if-exists=/dev/root"; rm "$job"' > /initqueue/iscsi-settle.sh
+    echo 'settle_exit_if_exists="--exit-if-exists=/dev/root"; rm "$job"' > $hookdir/initqueue/iscsi-settle.sh
 
     # force udevsettle to break
-    > /initqueue/work
+    > $hookdir/initqueue/work
 
     iscsistart -i $iscsi_initiator -t $iscsi_target_name        \
         -g $iscsi_target_group -a $iscsi_target_ip      \
@@ -177,7 +178,7 @@ handle_netroot()
 # install mount script
     if [ -n "${root%%block:*}" ]; then
     # if root is not specified try to mount the whole iSCSI LUN
-        echo "iscsi_lun=$iscsi_lun . /bin/mount-lun.sh " > /mount/01-$$-iscsi.sh
+        echo "iscsi_lun=$iscsi_lun . /bin/mount-lun.sh " > $hookdir/mount/01-$$-iscsi.sh
     fi
 }
 

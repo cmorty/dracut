@@ -1,3 +1,4 @@
+#!/bin/sh
 # -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
 # ex: ts=8 sw=4 sts=4 et filetype=sh
 if ! getargbool 1 rd.md -n rd_NO_MD; then
@@ -28,7 +29,7 @@ fi
 
 if [ -e /etc/mdadm.conf ] && getargbool 1 rd.md.conf -n rd_NO_MDADMCONF; then
     udevproperty rd_MDADMCONF=1
-    rm -f /pre-pivot/*mdraid-cleanup.sh
+    rm -f $hookdir/pre-pivot/*mdraid-cleanup.sh
 fi
 
 if ! getargbool 1 rd.md.conf -n rd_NO_MDADMCONF; then

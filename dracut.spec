@@ -14,8 +14,8 @@
 %endif
 
 Name: dracut
-Version: 008
-%define release_prefix 1%{?rdist}
+Version: 009
+%define release_prefix 0%{?rdist}
 Release: %{release_prefix}
 
 Summary: Initramfs generator using udev
@@ -144,6 +144,15 @@ This package requires everything which is needed to build an
 all purpose initramfs with dracut, which does an integrity check.
 %endif
 
+%package caps
+Summary: Dracut modules to build a dracut initramfs which drops capabilities
+Requires: %{name} = %{version}-%{release}
+Requires: libcap
+
+%description caps
+This package requires everything which is needed to build an
+all purpose initramfs with dracut, which drops capabilities.
+
 %package tools
 Summary: Dracut tools to build the local initramfs
 Requires: %{name} = %{version}-%{release}
@@ -177,9 +186,11 @@ mkdir -p $RPM_BUILD_ROOT/boot/dracut
 mkdir -p $RPM_BUILD_ROOT/var/lib/dracut/overlay
 mkdir -p $RPM_BUILD_ROOT%{_localstatedir}/log
 touch $RPM_BUILD_ROOT%{_localstatedir}/log/dracut.log
+mkdir -p $RPM_BUILD_ROOT%{_sharedstatedir}/initramfs
 
 %if 0%{?fedora}
 install -m 0644 dracut.conf.d/fedora.conf.example $RPM_BUILD_ROOT/etc/dracut.conf.d/01-dist.conf
+install -m 0644 dracut.conf.d/fips.conf.example $RPM_BUILD_ROOT/etc/dracut.conf.d/40-fips.conf
 %endif
 
 %if 0%{?suse_version}
@@ -190,6 +201,9 @@ install -m 0644 dracut.conf.d/suse.conf.example   $RPM_BUILD_ROOT/etc/dracut.con
 rm $RPM_BUILD_ROOT/sbin/mkinitrd
 rm $RPM_BUILD_ROOT/sbin/lsinitrd
 %endif
+
+mkdir -p $RPM_BUILD_ROOT/etc/logrotate.d/dracut
+install -m 0644 dracut.logrotate $RPM_BUILD_ROOT/etc/logrotate.d/dracut
 
 %clean
 rm -rf $RPM_BUILD_ROOT
@@ -208,11 +222,13 @@ rm -rf $RPM_BUILD_ROOT
 %dir %{_datadir}/dracut
 %dir %{_datadir}/dracut/modules.d
 %{_datadir}/dracut/dracut-functions
+%{_datadir}/dracut/dracut-logger
 %config(noreplace) /etc/dracut.conf
 %if 0%{?fedora} || 0%{?suse_version}
 %config(noreplace) /etc/dracut.conf.d/01-dist.conf
 %endif
 %dir /etc/dracut.conf.d
+%config(noreplace) /etc/logrotate.d/dracut
 %{_mandir}/man8/dracut.8*
 %{_mandir}/man7/dracut.kernel.7*
 %{_mandir}/man5/dracut.conf.5*
@@ -241,7 +257,6 @@ rm -rf $RPM_BUILD_ROOT
 %{_datadir}/dracut/modules.d/95zfcp
 %{_datadir}/dracut/modules.d/95terminfo
 %{_datadir}/dracut/modules.d/95udev-rules
-%{_datadir}/dracut/modules.d/96insmodpost
 %{_datadir}/dracut/modules.d/97biosdevname
 %{_datadir}/dracut/modules.d/98selinux
 %{_datadir}/dracut/modules.d/98syslog
@@ -249,6 +264,7 @@ rm -rf $RPM_BUILD_ROOT
 # logfile needs no logrotate, because it gets overwritten
 # for every dracut run
 %attr(0644,root,root) %ghost %config(missingok,noreplace) %{_localstatedir}/log/dracut.log
+%dir %{_sharedstatedir}/initramfs
 
 %files network
 %defattr(-,root,root,0755)
@@ -264,7 +280,12 @@ rm -rf $RPM_BUILD_ROOT
 %files fips
 %defattr(-,root,root,0755)
 %{_datadir}/dracut/modules.d/01fips
+%config(noreplace) /etc/dracut.conf.d/40-fips.conf
 %endif
+
+%files caps
+%defattr(-,root,root,0755)
+%{_datadir}/dracut/modules.d/02caps
 
 %files tools 
 %defattr(-,root,root,0755)

@@ -7,7 +7,7 @@
 #
 PATH=$PATH:/sbin:/usr/sbin
 
-. /lib/dracut-lib.sh
+type getarg >/dev/null 2>&1 || . /lib/dracut-lib.sh
 
 # Run dhclient
 do_dhcp() {
@@ -83,8 +83,8 @@ do_static() {
 PATH=$PATH:/sbin:/usr/sbin
 
 export PS4="ifup.$1.$$ + "
-exec >>/dev/.initramfs/initlog.pipe 2>>/dev/.initramfs/initlog.pipe
-. /lib/dracut-lib.sh
+exec >>/run/initramfs/initlog.pipe 2>>/run/initramfs/initlog.pipe
+type getarg >/dev/null 2>&1 || . /lib/dracut-lib.sh
 
 # Huh? No $1?
 [ -z "$1" ] && exit 1
@@ -207,7 +207,9 @@ fi
 # looking for ip= lines
 for p in $(getargs ip=); do
     ip_to_var $p
-    
+    # skip ibft
+    [ "$autoconf" = "ibft" ] && continue
+	
     # If this option isn't directed at our interface, skip it
     [ -n "$dev" ] && [ "$dev" != "$netif" ] && continue
 

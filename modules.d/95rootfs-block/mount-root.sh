@@ -2,7 +2,7 @@
 # -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
 # ex: ts=8 sw=4 sts=4 et filetype=sh
 
-. /lib/dracut-lib.sh
+type getarg >/dev/null 2>&1 || . /lib/dracut-lib.sh
 
 filter_rootopts() {
     rootopts=$1
@@ -117,8 +117,7 @@ if [ -n "$root" -a -z "${root%%block:*}" ]; then
         info fsck -T -t noopts=_netdev -A $fsckoptions
         out=$(fsck -T -t noopts=_netdev -A $fsckoptions) 
         export RD_ROOTFS_FSCK=$?
-        mkdir -p /dev/.initramfs
-        echo $RD_ROOTFS_FSCK > /dev/.initramfs/fsck
+        echo $RD_ROOTFS_FSCK > /run/initramfs/root-fsck
         
         # A return of 4 or higher means there were serious problems.
         if [ $RD_ROOTFS_FSCK -gt 3 ]; then

@@ -1,4 +1,4 @@
-VERSION=008
+VERSION=009
 GITVERSION=$(shell [ -d .git ] && git rev-list  --abbrev-commit  -n 1 HEAD  |cut -b 1-8)
 
 prefix ?= /usr
@@ -49,6 +49,7 @@ endif
 	install -m 0644 dracut.conf $(DESTDIR)$(sysconfdir)/dracut.conf
 	mkdir -p $(DESTDIR)$(sysconfdir)/dracut.conf.d
 	install -m 0755 dracut-functions $(DESTDIR)$(pkglibdir)/dracut-functions
+	install -m 0755 dracut-logger $(DESTDIR)$(pkglibdir)/dracut-logger
 	cp -arx modules.d $(DESTDIR)$(pkglibdir)
 	install -m 0644 dracut.8 $(DESTDIR)$(mandir)/man8
 	install -m 0644 dracut-catimages.8 $(DESTDIR)$(mandir)/man8
@@ -93,10 +94,17 @@ gitrpm: dracut-$(VERSION)-$(GITVERSION).tar.bz2
 	mv dracut.spec.bak dracut.spec
 	rm -fr BUILD BUILDROOT
 
-check: all
-	@ret=0;for i in modules.d/99base/init modules.d/*/*.sh; do \
+syncheck:
+	@ret=0;for i in dracut-logger modules.d/99base/init modules.d/*/*.sh; do \
+                [ "$${i##*/}" = "module-setup.sh" ] && continue; \
+                [ "$${i##*/}" = "caps.sh" ] && continue; \
 		dash -n "$$i" ; ret=$$(($$ret+$$?)); \
 	done;exit $$ret
+	@ret=0;for i in dracut modules.d/02caps/caps.sh modules.d/*/module-setup.sh; do \
+		bash -n "$$i" ; ret=$$(($$ret+$$?)); \
+	done;exit $$ret
+
+check: all syncheck
 	$(MAKE) -C test check
 
 testimage: all

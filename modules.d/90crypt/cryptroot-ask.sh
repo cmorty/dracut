@@ -80,9 +80,8 @@ if [ -n "$(getarg rd.luks.key)" ]; then
     rmdir "$mntp"
     unset mntp keypath keydev
 else
-    # Prompt for password with plymouth, if installed.
-    # Should we check if plymouthd is running?
-    if [ -x /bin/plymouth ]; then
+    # Prompt for password with plymouth, if installed and running.
+    if [ -x /bin/plymouth ] && /bin/plymouth --has-active-vt; then
         prompt="Password [$device ($luksname)]:" 
         if [ ${#luksname} -gt 8 ]; then
             sluksname=${sluksname##luks-}
@@ -93,7 +92,7 @@ else
         # flock against other interactive activities
         { flock -s 9; 
             /bin/plymouth ask-for-password \
-                --prompt "$prompt" \
+                --prompt "$prompt" --number-of-tries=5 \
                 --command="/sbin/cryptsetup luksOpen -T1 $device $luksname"
         } 9>/.console.lock
         

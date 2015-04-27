@@ -1,3 +1,4 @@
+#!/bin/sh
 # -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
 # ex: ts=8 sw=4 sts=4 et filetype=sh
 
@@ -16,7 +17,7 @@ if [ -n "$resume" ]; then
             ${resume#/dev/};
         printf "SYMLINK==\"%s\", ACTION==\"add|change\", SYMLINK+=\"/dev/resume\"\n" \
             ${resume#/dev/};
-    } >> /dev/.udev/rules.d/99-resume-link.rules
+    } >> $UDEVRULESD/99-resume-link.rules
 
     {
         if [ -x /usr/sbin/resume ]; then
@@ -32,14 +33,14 @@ if [ -n "$resume" ]; then
     } >> /etc/udev/rules.d/99-resume.rules
 
     printf '[ -e "%s" ] && { ln -s "%s" /dev/resume; rm "$job"; }\n' \
-        "$resume" "$resume" >> /initqueue-settled/resume.sh
+        "$resume" "$resume" >> $hookdir/initqueue/settled/resume.sh
 
-    echo '[ -e /dev/resume ]' > /initqueue-finished/resume.sh
+    echo '[ -e /dev/resume ]' > $hookdir/initqueue/finished/resume.sh
 
     {
         printf '[ -e /dev/resume ] || '
         printf 'warn "resume device "%s" not found"\n' "$resume"
-    } >> /emergency/00-resume.sh
+    } >> $hookdir/emergency/00-resume.sh
 
 
 elif ! getarg noresume; then

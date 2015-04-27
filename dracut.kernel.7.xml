@@ -84,7 +84,7 @@ accordingly.</para>
       <variablelist>
         <varlistentry>
           <term>
-            <envar>rd.driver.blacklist=<replaceable>&lt;drivername&gt;</replaceable></envar>
+            <envar>rd.driver.blacklist=<replaceable>&lt;drivername&gt;<optional>,&lt;drivername&gt;,...</optional></replaceable></envar>
           </term>
           <listitem>
             <para>do not load kernel module &lt;drivername&gt;
@@ -93,11 +93,19 @@ This parameter can be specified multiple times.</para>
         </varlistentry>
         <varlistentry>
           <term>
-            <envar>rd.driver.pre=<replaceable>&lt;drivername&gt;</replaceable></envar>
+            <envar>rd.driver.pre=<replaceable>&lt;drivername&gt;<optional>,&lt;drivername&gt;,...</optional></replaceable></envar>
           </term>
           <listitem>
             <para>force loading kernel module &lt;drivername&gt;
 This parameter can be specified multiple times.</para>
+          </listitem>
+        </varlistentry>
+        <varlistentry>
+          <term>
+            <envar>rd.driver.post=<replaceable>&lt;drivername&gt;<optional>,&lt;drivername&gt;,...</optional></replaceable></envar>
+          </term>
+          <listitem>
+	    <para>force loading kernel module &lt;drivername&gt; after all automatic loading modules have been loaded. This parameter can be specified multiple times.</para>
           </listitem>
         </varlistentry>
       </variablelist>
@@ -193,7 +201,7 @@ This parameter can be specified multiple times.</para>
         </varlistentry>
         <varlistentry>
           <term>
-            <envar>vconsole.font.unicode=</envar><replaceable>&lt;1|0&gt;</replaceable>
+            <envar>vconsole.unicode=</envar><replaceable>&lt;1|0&gt;</replaceable>
           </term>
           <listitem>
             <para>boolean, indicating UTF-8 mode; will be written as <envar>UNICODE</envar> to <filename>/etc/vconsole.conf</filename> in the initramfs</para>
@@ -386,7 +394,7 @@ This parameter can be specified multiple times.</para>
       <variablelist>
         <varlistentry>
           <term>
-            <envar>ip=</envar><replaceable>{dhcp|on|any|dhcp6|auto6}</replaceable>
+            <envar>ip=</envar><replaceable>{dhcp|on|any|dhcp6|auto6|ibft}</replaceable>
           </term>
           <listitem>
             <para>dhcp|on|any: get ip from dhcp server from all interfaces. If root=dhcp, 
@@ -394,6 +402,7 @@ loop sequentially through all interfaces (eth0, eth1, ...) and use the first
 with a valid DHCP root-path.</para>
             <para><constant>auto6</constant>: IPv6 autoconfiguration</para>
             <para><constant>dhcp6</constant>: IPv6 DHCP</para>
+            <para><constant>ibft</constant>: iBFT autoconfiguration</para>
           </listitem>
         </varlistentry>
         <varlistentry>
@@ -576,10 +585,10 @@ netroot=iscsi:192.168.50.1::::iqn.2009-06.dracut:target1  </programlisting></par
       <title>FCoE</title>
       <variablelist>
         <varlistentry>
-          <term><envar>netroot=</envar><constant>fcoe</constant>:<replaceable>&lt;interface|MAC&gt;</replaceable>:<replaceable>{dcb|nodcb}</replaceable></term>
+          <term><envar>fcoe=</envar><replaceable>&lt;edd|interface|MAC&gt;</replaceable>:<replaceable>{dcb|nodcb}</replaceable></term>
           <listitem>
-            <para>Try to connect to a FCoE SAN through the NIC specified by <replaceable>&lt;interface&gt;</replaceable> or <replaceable>&lt;MAC&gt;</replaceable>,
-for the second argument, currently only nodcb is supported. <remark>Note: letters in the MAC-address must be lowercase!</remark></para>
+            <para>Try to connect to a FCoE SAN through the NIC specified by <replaceable>&lt;interface&gt;</replaceable> or <replaceable>&lt;MAC&gt;</replaceable> or EDD settings.
+For the second argument, currently only nodcb is supported. This parameter can be specified multiple times. <remark>Note: letters in the MAC-address must be lowercase!</remark></para>
           </listitem>
         </varlistentry>
       </variablelist>
@@ -1168,7 +1177,7 @@ rd.znet=ctc,0.0.0600,0.0.0601,0.0.0602,protocol=bar</programlisting></para>
             <envar>UNICODE</envar>
           </term>
           <listitem>
-            <para><envar>vconsole.font.unicode</envar></para>
+            <para><envar>vconsole.unicode</envar></para>
           </listitem>
         </varlistentry>
         <varlistentry>
@@ -1187,10 +1196,10 @@ rd.znet=ctc,0.0.0600,0.0.0601,0.0.0602,protocol=bar</programlisting></para>
     <variablelist>
       <varlistentry>
         <term>
-          <filename>/conf/conf.d/</filename>
+          <filename>/etc/conf.d/</filename>
         </term>
         <listitem>
-          <para>Any files found in <filename>/conf/conf.d/</filename> will be sourced in the initramfs to 
+          <para>Any files found in <filename>/etc/conf.d/</filename> will be sourced in the initramfs to
 set initial values. Command line options will override these values 
 set in the configuration files.</para>
         </listitem>

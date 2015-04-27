@@ -14,7 +14,7 @@ installkernel() {
         hostonly='' instmods usb_storage sdhci sdhci-pci
 
         # install keyboard support
-        hostonly='' instmods atkbd i8042 usbhid hid-apple hid-sunplus ehci-hcd ohci-hcd uhci-hcd
+        hostonly='' instmods atkbd i8042 usbhid hid-apple hid-sunplus hid-cherry hid-logitech hid-microsoft ehci-hcd ohci-hcd uhci-hcd
 
         instmods "=drivers/pcmcia" =ide "=drivers/usb/storage"
         instmods $(filter_kernel_modules block_module_test) 
@@ -26,17 +26,16 @@ installkernel() {
                 # hardcoded list of exceptions
                 # to save a lot of space
                 rm -fr ${initdir}/lib/modules/*/kernel/fs/ocfs2
-            else
-                instmods $filesystems
             fi
         else
             hostonly='' instmods $(get_fs_type "/dev/block/$(find_root_block_device)")
         fi
     else
-        hostonly='' instmods $drivers $filesystems
+        hostonly='' instmods $drivers
     fi
 
     [[ $add_drivers ]] && hostonly='' instmods $add_drivers
+    [[ $filesystems ]] && hostonly='' instmods $filesystems
 
     # force install of scsi_wait_scan
     hostonly='' instmods scsi_wait_scan
@@ -46,5 +45,6 @@ install() {
     [ -f /etc/modprobe.conf ] && dracut_install /etc/modprobe.conf
     dracut_install $(find /etc/modprobe.d/ -type f -name '*.conf')
     inst_hook cmdline 01 "$moddir/parse-kernel.sh"
+    inst_simple "$moddir/insmodpost.sh" /sbin/insmodpost.sh
     inst "$srcmods/modules.builtin.bin" "/lib/modules/$kernel/modules.builtin.bin"
 }

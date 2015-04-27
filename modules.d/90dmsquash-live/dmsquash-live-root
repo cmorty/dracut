@@ -2,7 +2,7 @@
 # -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
 # ex: ts=8 sw=4 sts=4 et filetype=sh
 
-. /lib/dracut-lib.sh
+type getarg >/dev/null 2>&1 || . /lib/dracut-lib.sh
 [ -f /tmp/root.info ] && . /tmp/root.info
 
 PATH=$PATH:/sbin:/usr/sbin
@@ -26,7 +26,7 @@ getargbool 0 rd.live.overlay.readonly -y readonly_overlay && readonly_overlay="-
 overlay=$(getarg rd.live.overlay overlay)
 
 # FIXME: we need to be able to hide the plymouth splash for the check really
-[ -e $livedev ] & fs=$(blkid -s TYPE -o value $livedev)
+[ -e $livedev ] && fs=$(blkid -s TYPE -o value $livedev)
 if [ "$fs" = "iso9660" -o "$fs" = "udf" ]; then
     check="yes"
 fi
@@ -43,12 +43,20 @@ getarg ro && liverw=ro
 getarg rw && liverw=rw
 [ -z "$liverw" ] && liverw=ro
 # mount the backing of the live image first
-mkdir -p /dev/.initramfs/live
-mount -n -t $fstype -o $liverw $livedev /dev/.initramfs/live
-RES=$?
-if [ "$RES" != "0" ]; then
-    die "Failed to mount block device of live image"
-    exit 1
+mkdir -p /run/initramfs/live
+if [ -f $livedev ]; then
+    # no mount needed - we've already got the LiveOS image in initramfs
+    case $livedev in
+        *squashfs.img) SQUASHED=$livedev ;;
+        *ext3fs.img|*rootfs.img) FSIMG=$livedev ;;
+    esac
+else
+    mount -n -t $fstype -o $liverw $livedev /run/initramfs/live
+    RES=$?
+    if [ "$RES" != "0" ]; then
+        die "Failed to mount block device of live image"
+        exit 1
+    fi
 fi
 
 # overlay setup helper function
@@ -108,8 +116,8 @@ do_live_from_base_loop() {
 }
 
 # we might have a genMinInstDelta delta file for anaconda to take advantage of
-if [ -e /dev/.initramfs/live/${live_dir}/osmin.img ]; then
-    OSMINSQFS=/dev/.initramfs/live/${live_dir}/osmin.img
+if [ -e /run/initramfs/live/${live_dir}/osmin.img ]; then
+    OSMINSQFS=/run/initramfs/live/${live_dir}/osmin.img
 fi
 
 if [ -n "$OSMINSQFS" ]; then
@@ -124,21 +132,23 @@ if [ -n "$OSMINSQFS" ]; then
     umount -l /squashfs.osmin
 fi
 
-# we might have just an embedded ext3 to use as rootfs (uncompressed live)
-if [ -e /dev/.initramfs/live/${live_dir}/ext3fs.img ]; then
-    EXT3FS="/dev/.initramfs/live/${live_dir}/ext3fs.img"
+# we might have an embedded fs image to use as rootfs (uncompressed live)
+if [ -e /run/initramfs/live/${live_dir}/ext3fs.img ]; then
+    FSIMG="/run/initramfs/live/${live_dir}/ext3fs.img"
+elif [ -e /run/initramfs/live/${live_dir}/rootfs.img ]; then
+    FSIMG="/run/initramfs/live/${live_dir}/rootfs.img"
 fi
 
-if [ -n "$EXT3FS" ] ; then
+if [ -n "$FSIMG" ] ; then
     BASE_LOOPDEV=$( losetup -f )
-    losetup -r $BASE_LOOPDEV $EXT3FS
+    losetup -r $BASE_LOOPDEV $FSIMG
 
     do_live_from_base_loop
 fi
 
-# we might have an embedded ext3 on squashfs to use as rootfs (compressed live)
-if [ -e /dev/.initramfs/live/${live_dir}/squashfs.img ]; then
-    SQUASHED="/dev/.initramfs/live/${live_dir}/squashfs.img"
+# we might have an embedded fs image on squashfs (compressed live)
+if [ -e /run/initramfs/live/${live_dir}/squashfs.img ]; then
+    SQUASHED="/run/initramfs/live/${live_dir}/squashfs.img"
 fi
 
 if [ -e "$SQUASHED" ] ; then
@@ -146,7 +156,7 @@ if [ -e "$SQUASHED" ] ; then
         echo "Copying live image to RAM..."
         echo "(this may take a few minutes)"
         dd if=$SQUASHED of=/squashed.img bs=512 2> /dev/null
-        umount -n /dev/.initramfs/live
+        umount -n /run/initramfs/live
         echo "Done copying live image to RAM."
         eject -p $livedev || :
         SQUASHED="/squashed.img"
@@ -158,7 +168,11 @@ if [ -e "$SQUASHED" ] ; then
     mount -n -t squashfs -o ro $SQUASHED_LOOPDEV /squashfs
 
     BASE_LOOPDEV=$( losetup -f )
-    losetup -r $BASE_LOOPDEV /squashfs/LiveOS/ext3fs.img
+    if [ -f /squashfs/LiveOS/ext3fs.img ]; then
+        losetup -r $BASE_LOOPDEV /squashfs/LiveOS/ext3fs.img
+    elif [ -f /squashfs/LiveOS/rootfs.img ]; then
+        losetup -r $BASE_LOOPDEV /squashfs/LiveOS/rootfs.img
+    fi
 
     umount -l /squashfs
 
@@ -177,6 +191,6 @@ if [ -n "$ROOTFLAGS" ]; then
 fi
 
 ln -s /dev/mapper/live-rw /dev/root
-printf '/bin/mount %s /dev/mapper/live-rw %s\n' "$ROOTFLAGS" "$NEWROOT" > /mount/01-$$-live.sh
+printf '/bin/mount %s /dev/mapper/live-rw %s\n' "$ROOTFLAGS" "$NEWROOT" > $hookdir/mount/01-$$-live.sh
 
 exit 0
