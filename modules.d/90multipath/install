@@ -1,6 +1,6 @@
 #!/bin/bash
 
-if [[ $hostonly ]]; then
+if [ -f /etc/multipath.conf ]; then
     inst /etc/multipath.conf
 fi
 
@@ -29,4 +29,4 @@ inst_hook pre-pivot   02 "$moddir/multipathd-stop.sh"
 inst_rules 40-multipath.rules
 
 inst "$moddir/multipath-scan.sh" /sbin/multipath-scan
-inst_rules "$moddir/14-multipath-scan.rules"
+inst_rules "$moddir/9-multipath-scan.rules"

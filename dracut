@@ -94,6 +94,7 @@ while (($# > 0)); do
 	--debug) debug="yes";;
 	-v|--verbose) beverbose="yes";;
 	-c|--conf) conffile="$2"; shift;;
+	--confdir) confdir="$2"; shift;;
 	-l|--local) allowlocal="yes" ;;
 	-H|--hostonly) hostonly_l="yes" ;;
 	-i|--include) include_src="$2"; include_target="$3"; shift 2;;
@@ -120,6 +121,18 @@ export PATH
 if [[ ! -f $conffile ]]; then
     [[ $allowlocal ]] || conffile="/etc/dracut.conf"
     [[ $allowlocal ]] && conffile="$dracutbasedir/dracut.conf"
+fi
+
+if [[ ! -d $confdir ]]; then
+    [[ $allowlocal ]] || confdir="/etc/dracut.conf.d"
+    [[ $allowlocal ]] && confdir="$dracutbasedir/dracut.conf.d"
+fi
+
+# source our config dir
+if [ "$confdir" ] && [  -d "$confdir" ]; then
+    for f in "$confdir"/*.conf; do 
+	[ -e "$f" ] && . "$f"
+    done
 fi
 
 # source our config file
@@ -164,7 +177,8 @@ case $dracutmodules in
 esac
 
 [[ $2 ]] && kernel=$2 || kernel=$(uname -r)
-[[ $1 ]] && outfile=$(readlink -f $1) || outfile="/boot/initramfs-$kernel.img"
+[[ $1 ]] && outfile=$1 || outfile="/boot/initramfs-$kernel.img"
+abs_outfile=$(readlink -f "$outfile") && outfile="$abs_outfile"
 
 srcmods="/lib/modules/$kernel/"
 [[ $drivers_dir ]] && srcmods="$drivers_dir"
@@ -175,7 +189,18 @@ if [[ -f $outfile && ! $force ]]; then
     exit 1
 fi
 
-if ! [[ -w $(dirname $outfile) ]]; then
+outdir=$(dirname "$outfile")
+if ! [[ -d "$outdir" ]]; then
+    echo "Can't write $outfile: Directory $outdir does not exist."
+    exit 1
+fi
+
+if ! [[ -w "$outdir" ]]; then
+    echo "No permission to write $outdir."
+    exit 1
+fi
+
+if [[ -f "$outfile" ]] &&  ! [[ -w "$outfile" ]]; then
     echo "No permission to write $outfile."
     exit 1
 fi
@@ -233,9 +258,6 @@ if [[ -d $initdir/lib/modules/$kernel ]]; then
     fi
 fi
 
-# make sure that library links are correct and up to date
-ldconfig -n -r "$initdir" /lib* /usr/lib*
-
 if [[ $include_src && $include_target ]]; then
     mkdir -p "$initdir$include_target"
     cp -a -t "$initdir$include_target" "$include_src"/*
@@ -245,6 +267,10 @@ for item in $install_items; do
    dracut_install "$item"
 done
 unset item
+
+# make sure that library links are correct and up to date
+cp -ar /etc/ld.so.conf* "$initdir"/etc
+ldconfig -r "$initdir" || [[ $(id -u) != "0" ]] && dinfo "ldconfig might need uid=0 (root) for chroot()"
 
 [[ $beverbose = yes ]] && (du -c "$initdir" | sort -n)
 
