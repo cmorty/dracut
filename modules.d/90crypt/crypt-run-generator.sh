@@ -11,8 +11,21 @@ if [ -f /etc/crypttab ]; then
     done < /etc/crypttab
 fi
 
-echo "$luks $dev" >> /etc/crypttab
-/lib/systemd/system-generators/systemd-cryptsetup-generator
-systemctl daemon-reload
-systemctl start cryptsetup.target
+# parse for allow-discards
+if strstr "$(cryptsetup --help)" "allow-discards"; then
+    if discarduuids=$(getargs "rd.luks.allow-discards"); then
+        if strstr " $discarduuids " " ${luks##luks-}"; then
+	    allowdiscards="allow-discards"
+	fi
+    elif getargbool rd.luks.allow-discards; then
+	allowdiscards="allow-discards"
+    fi
+fi
+
+echo "$luks $dev none $allowdiscards" >> /etc/crypttab
+
+if command -v systemctl >/dev/null; then
+    systemctl daemon-reload
+    systemctl start cryptsetup.target
+fi
 exit 0

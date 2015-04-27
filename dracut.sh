@@ -89,8 +89,9 @@ Creates initial ramdisk images for preloading modules
                         firmwares, separated by :
   --kernel-only         Only install kernel drivers and firmware files
   --no-kernel           Do not install kernel drivers and firmware files
-  --strip               Strip binaries in the initramfs
-  --nostrip             Do not strip binaries in the initramfs (default)
+  --kernel-cmdline [PARAMETERS] Specify default kernel command line parameters
+  --strip               Strip binaries in the initramfs (default)
+  --nostrip             Do not strip binaries in the initramfs
   --hardlink            Hardlink files in the initramfs (default)
   --nohardlink          Do not hardlink files in the initramfs
   --prefix [DIR]        Prefix initramfs files with [DIR]
@@ -133,6 +134,7 @@ Creates initial ramdisk images for preloading modules
   --mount "[DEV] [MP] [FSTYPE] [FSOPTS]"
                         Mount device [DEV] on mountpoint [MP] with filesystem
                         [FSTYPE] and options [FSOPTS] in the initramfs
+  --device "[DEV]"      Bring up [DEV] in initramfs
   -i, --include [SOURCE] [TARGET]
                         Include the files in the SOURCE directory into the
                          Target directory in the final initramfs.
@@ -261,6 +263,7 @@ TEMP=$(unset POSIXLY_CORRECT; getopt \
     --long fscks: \
     --long add-fstab: \
     --long mount: \
+    --long device: \
     --long nofscks: \
     --long ro-mnt \
     --long kmoddir: \
@@ -273,6 +276,7 @@ TEMP=$(unset POSIXLY_CORRECT; getopt \
     --long force \
     --long kernel-only \
     --long no-kernel \
+    --long kernel-cmdline: \
     --long strip \
     --long nostrip \
     --long hardlink \
@@ -327,6 +331,8 @@ while :; do
         --fscks)       push fscks_l              "$2"; shift;;
         --add-fstab)   push add_fstab_l          "$2"; shift;;
         --mount)       push fstab_lines          "$2"; shift;;
+        --device)      push host_devs            "$2"; shift;;
+        --kernel-cmdline) push kernel_cmdline_l  "$2"; shift;;
         --nofscks)     nofscks_l="yes";;
         --ro-mnt)      ro_mnt_l="yes";;
         -k|--kmoddir)  drivers_dir_l="$2"; shift;;
@@ -545,7 +551,7 @@ stdloglvl=$((stdloglvl + verbosity_mod_l))
 
 [[ $drivers_dir_l ]] && drivers_dir=$drivers_dir_l
 [[ $do_strip_l ]] && do_strip=$do_strip_l
-[[ $do_strip ]] || do_strip=no
+[[ $do_strip ]] || do_strip=yes
 [[ $do_hardlink_l ]] && do_hardlink=$do_hardlink_l
 [[ $do_hardlink ]] || do_hardlink=yes
 [[ $prefix_l ]] && prefix=$prefix_l
@@ -642,6 +648,12 @@ if (( ${#omit_drivers_l[@]} )); then
     done
 fi
 omit_drivers=${omit_drivers/-/_}
+
+if (( ${#kernel_cmdline_l[@]} )); then
+    while pop kernel_cmdline_l val; do
+        kernel_cmdline+=" $val "
+    done
+fi
 
 omit_drivers_corrected=""
 for d in $omit_drivers; do
@@ -925,6 +937,8 @@ fi
 if [[ $kernel_only != yes ]]; then
     (( ${#install_items[@]} > 0 )) && dracut_install  ${install_items[@]}
 
+    echo "$kernel_cmdline" >> "${initdir}/etc/cmdline.d/01-default.conf"
+
     while pop fstab_lines line; do
         echo "$line 0 0" >> "${initdir}/etc/fstab"
     done
@@ -988,6 +1002,31 @@ if (($maxloglvl >= 5)); then
     du -c "$initdir" | sort -n | ddebug
 fi
 
+PRELINK_BIN=$(command -v prelink)
+if [[ $UID = 0 ]] && [[ $PRELINK_BIN ]]; then
+    if [[ $DRACUT_FIPS_MODE ]]; then
+        dinfo "*** Pre-unlinking files ***"
+        dracut_install -o prelink /etc/prelink.conf /etc/prelink.conf.d/*.conf /etc/prelink.cache
+        chroot "$initdir" $PRELINK_BIN -u -a
+        rm -f "$initdir"/$PRELINK_BIN
+        rm -fr "$initdir"/etc/prelink.*
+        dinfo "*** Pre-unlinking files done ***"
+    else
+        dinfo "*** Pre-linking files ***"
+        dracut_install -o prelink /etc/prelink.conf /etc/prelink.conf.d/*.conf
+        chroot "$initdir" $PRELINK_BIN -a
+        rm -f "$initdir"/$PRELINK_BIN
+        rm -fr "$initdir"/etc/prelink.*
+        dinfo "*** Pre-linking files done ***"
+    fi
+fi
+
+if [[ $do_hardlink = yes ]] && command -v hardlink >/dev/null; then
+    dinfo "*** Hardlinking files ***"
+    hardlink "$initdir" 2>&1
+    dinfo "*** Hardlinking files done ***"
+fi
+
 # strip binaries
 if [[ $do_strip = yes ]] ; then
     for p in strip xargs find; do
@@ -998,40 +1037,31 @@ if [[ $do_strip = yes ]] ; then
     done
 fi
 
-if strstr "$modules_loaded" " fips " && command -v prelink >/dev/null; then
-    dinfo "*** pre-unlinking files ***"
-    for dir in "$initdir/bin" \
-       "$initdir/sbin" \
-       "$initdir/usr/bin" \
-       "$initdir/usr/sbin"; do
-        [[ -L "$dir" ]] && continue
-        for i in "$dir"/*; do
-            [[ -L $i ]] && continue
-            [[ -x $i ]] && prelink -u $i &>/dev/null
-        done
-    done
-    dinfo "*** pre-unlinking files done ***"
-fi
-
 if [[ $do_strip = yes ]] ; then
     dinfo "*** Stripping files ***"
-    find "$initdir" -type f \
-        '(' -perm -0100 -or -perm -0010 -or -perm -0001 \
-        -or -path '*/lib/modules/*.ko' ')' -print0 \
-        | xargs -r -0 strip -g 2>/dev/null
+    if [[ $DRACUT_FIPS_MODE ]]; then
+        find "$initdir" -type f \
+            '(' -perm -0100 -or -perm -0010 -or -perm -0001 \
+            -or -path '*/lib/modules/*.ko' ')' -print0 \
+            | while read -r -d $'\0' f; do
+            if ! [[ -e "${f%/*}/.${f##*/}.hmac" ]] \
+                && ! [[ -e "/lib/fipscheck/${f##*/}.hmac" ]] \
+                && ! [[ -e "/lib64/fipscheck/${f##*/}.hmac" ]]; then
+                echo -n "$f"; echo -n -e "\000"
+            fi
+        done |xargs -r -0 strip -g 2>/dev/null
+    else
+        find "$initdir" -type f \
+            '(' -perm -0100 -or -perm -0010 -or -perm -0001 \
+            -or -path '*/lib/modules/*.ko' ')' -print0 \
+            | xargs -r -0 strip -g 2>/dev/null
+    fi
     dinfo "*** Stripping files done ***"
 fi
 
-if [[ $do_hardlink = yes ]] ; then
-    type hardlink &>/dev/null && {
-        dinfo "*** hardlinking files ***"
-        hardlink "$initdir" 2>&1
-        dinfo "*** hardlinking files done ***"
-    }
-fi
-
+rm -f "$outfile"
 dinfo "*** Creating image file ***"
-if ! ( cd "$initdir"; find . |cpio -R 0:0 -H newc -o --quiet| \
+if ! ( umask 077; cd "$initdir"; find . |cpio -R 0:0 -H newc -o --quiet| \
     $compress > "$outfile"; ); then
     dfatal "dracut: creation of $outfile failed"
     exit 1

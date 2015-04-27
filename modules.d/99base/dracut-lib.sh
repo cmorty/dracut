@@ -109,7 +109,7 @@ getarg() {
             -d) _deprecated=1; shift;;
             -y) if _dogetarg $2 >/dev/null; then
                     if [ "$_deprecated" = "1" ]; then
-                        [ -n "$_newoption" ] && warn "Option '$2' is deprecated, use '$_newoption' instead." || warn "Option '$2' is deprecated."
+                        [ -n "$_newoption" ] && warn "Kernel command line option '$2' is deprecated, use '$_newoption' instead." || warn "Option '$2' is deprecated."
                     fi
                     echo 1
                     debug_on
@@ -120,7 +120,7 @@ getarg() {
             -n) if _dogetarg $2 >/dev/null; then
                     echo 0;
                     if [ "$_deprecated" = "1" ]; then
-                        [ -n "$_newoption" ] && warn "Option '$2' is deprecated, use '$_newoption=0' instead." || warn "Option '$2' is deprecated."
+                        [ -n "$_newoption" ] && warn "Kernel command line option '$2' is deprecated, use '$_newoption=0' instead." || warn "Option '$2' is deprecated."
                     fi
                     debug_on
                     return 1
@@ -132,7 +132,7 @@ getarg() {
                 fi
                 if _dogetarg $1; then
                     if [ "$_deprecated" = "1" ]; then
-                        [ -n "$_newoption" ] && warn "Option '$1' is deprecated, use '$_newoption' instead." || warn "Option '$1' is deprecated."
+                        [ -n "$_newoption" ] && warn "Kernel command line option '$1' is deprecated, use '$_newoption' instead." || warn "Option '$1' is deprecated."
                     fi
                     debug_on
                     return 0;
@@ -271,12 +271,12 @@ splitsep() {
 
     while [ -n "$str" -a "$#" -gt 1 ]; do
         tmp="${str%%$sep*}"
-        eval "$1=${tmp}"
-        str="${str#$tmp}"
+        eval "$1='${tmp}'"
+        str="${str#"$tmp"}"
         str="${str#$sep}"
         shift
     done
-    [ -n "$str" -a -n "$1" ] && eval "$1=$str"
+    [ -n "$str" -a -n "$1" ] && eval "$1='$str'"
     debug_on
     return 0
 }
@@ -463,17 +463,23 @@ find_mount() {
 
 # usage: ismounted <mountpoint>
 # usage: ismounted /dev/<device>
-ismounted() {
-    if [ -b "$1" ]; then
-        find_mount "$1" > /dev/null && return 0
-        return 1
-    fi
+if command -v findmnt >/dev/null; then
+    ismounted() {
+        findmnt "$1" > /dev/null 2>&1
+    }
+else
+    ismounted() {
+        if [ -b "$1" ]; then
+            find_mount "$1" > /dev/null && return 0
+            return 1
+        fi
 
-    while read a m a; do
-        [ "$m" = "$1" ] && return 0
-    done < /proc/mounts
-    return 1
-}
+        while read a m a; do
+            [ "$m" = "$1" ] && return 0
+        done < /proc/mounts
+        return 1
+    }
+fi
 
 wait_for_if_up() {
     local cnt=0
@@ -870,10 +876,8 @@ _emergency_shell()
     if [ -n "$DRACUT_SYSTEMD" ]; then
         > /.console_lock
         echo "PS1=\"$_name:\${PWD}# \"" >/etc/profile
-        systemctl start emergency.service
-        debug_off
-        while [ -e /.console_lock ]; do sleep 1; done
-        debug_on
+        systemctl start dracut-emergency.service
+        rm -f /.console_lock
     else
         echo "Dropping to debug shell."
         echo
@@ -890,8 +894,8 @@ _emergency_shell()
             _ctty=/dev/$_ctty
         fi
         [ -c "$_ctty" ] || _ctty=/dev/tty1
-        strstr "$(setsid --help 2>/dev/null)" "ctty" && CTTY="-c"
-        setsid $CTTY /bin/sh -i -l 0<$_ctty 1>$_ctty 2>&1
+        case "$(/usr/bin/setsid --help 2>&1)" in *--ctty*) CTTY="--ctty";; esac
+        setsid $CTTY /bin/sh -i -l 0<>$_ctty 1<>$_ctty 2<>$_ctty
     fi
 }
 

@@ -1,5 +1,7 @@
-VERSION=023
+VERSION=024
 GITVERSION=$(shell [ -d .git ] && git rev-list  --abbrev-commit  -n 1 HEAD  |cut -b 1-8)
+
+-include Makefile.inc
 
 prefix ?= /usr
 libdir ?= ${prefix}/lib
@@ -59,6 +61,10 @@ indent:
 
 doc: $(manpages) dracut.html
 
+ifneq ($(enable_documentation),no)
+all: doc
+endif
+
 %: %.xml
 	xsltproc -o $@ -nonet http://docbook.sourceforge.net/release/xsl/current/manpages/docbook.xsl $<
 
@@ -68,13 +74,12 @@ doc: $(manpages) dracut.html
 dracut.html: dracut.asc $(manpages)
 	asciidoc -a numbered -d book -b docbook -o dracut.xml dracut.asc
 	xsltproc -o dracut.html --xinclude -nonet \
-		--stringparam draft.mode yes \
 		--stringparam html.stylesheet \
-		http://docs.redhat.com/docs/en-US/Common_Content/css/default.css \
+		http://docs.fedoraproject.org/en-US/Common_Content/css/default.css \
 		http://docbook.sourceforge.net/release/xsl/current/xhtml/docbook.xsl dracut.xml
 	rm dracut.xml
 
-install: doc dracut-version.sh
+install: dracut-version.sh
 	mkdir -p $(DESTDIR)$(pkglibdir)
 	mkdir -p $(DESTDIR)$(bindir)
 	mkdir -p $(DESTDIR)$(sysconfdir)
@@ -92,11 +97,13 @@ install: doc dracut-version.sh
 	install -m 0755 dracut-logger.sh $(DESTDIR)$(pkglibdir)/dracut-logger.sh
 	install -m 0755 dracut-initramfs-restore.sh $(DESTDIR)$(pkglibdir)/dracut-initramfs-restore
 	cp -arx modules.d $(DESTDIR)$(pkglibdir)
+ifneq ($(enable_documentation),no)
 	for i in $(man1pages); do install -m 0644 $$i $(DESTDIR)$(mandir)/man1/$${i##*/}; done
 	for i in $(man5pages); do install -m 0644 $$i $(DESTDIR)$(mandir)/man5/$${i##*/}; done
 	for i in $(man7pages); do install -m 0644 $$i $(DESTDIR)$(mandir)/man7/$${i##*/}; done
 	for i in $(man8pages); do install -m 0644 $$i $(DESTDIR)$(mandir)/man8/$${i##*/}; done
 	ln -fs dracut.cmdline.7 $(DESTDIR)$(mandir)/man7/dracut.kernel.7
+endif
 	if [ -n "$(systemdsystemunitdir)" ]; then \
 		mkdir -p $(DESTDIR)$(systemdsystemunitdir); \
 		install -m 0644 dracut-shutdown.service $(DESTDIR)$(systemdsystemunitdir); \
@@ -115,6 +122,7 @@ clean:
 	$(RM) *~
 	$(RM) */*~
 	$(RM) */*/*~
+	$(RM) $(manpages:%=%.xml) dracut.xml
 	$(RM) test-*.img
 	$(RM) dracut-*.rpm dracut-*.tar.bz2
 	$(RM) dracut-install install/dracut-install $(DRACUT_INSTALL_OBJECTS)
