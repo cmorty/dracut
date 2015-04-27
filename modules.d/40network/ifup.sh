@@ -21,14 +21,18 @@ use_bridge='false'
 use_vlan='false'
 
 # enslave this interface to bond?
-if [ -e /tmp/bond.info ]; then
-    . /tmp/bond.info
+for i in /tmp/bond.*.info; do
+    [ -e "$i" ] || continue
+    unset bondslaves
+    unset bondname
+    . "$i"
     for slave in $bondslaves ; do
         if [ "$netif" = "$slave" ] ; then
             netif=$bondname
+            break 2
         fi
     done
-fi
+done
 
 if [ -e /tmp/team.info ]; then
     . /tmp/team.info
@@ -39,6 +43,20 @@ if [ -e /tmp/team.info ]; then
     done
 fi
 
+if [ -e /tmp/vlan.info ]; then
+    . /tmp/vlan.info
+    if [ "$netif" = "$phydevice" ]; then
+        if [ "$netif" = "$bondname" ] && [ -n "$DO_BOND_SETUP" ] ; then
+            : # We need to really setup bond (recursive call)
+        elif [ "$netif" = "$teammaster" ] && [ -n "$DO_TEAM_SETUP" ] ; then
+            : # We need to really setup team (recursive call)
+        else
+            netif="$vlanname"
+            use_vlan='true'
+        fi
+    fi
+fi
+
 # bridge this interface?
 if [ -e /tmp/bridge.info ]; then
     . /tmp/bridge.info
@@ -46,24 +64,16 @@ if [ -e /tmp/bridge.info ]; then
         if [ "$netif" = "$ethname" ]; then
             if [ "$netif" = "$bondname" ] && [ -n "$DO_BOND_SETUP" ] ; then
                 : # We need to really setup bond (recursive call)
+            elif [ "$netif" = "$teammaster" ] && [ -n "$DO_TEAM_SETUP" ] ; then
+                : # We need to really setup team (recursive call)
+            elif [ "$netif" = "$vlanname" ] && [ -n "$DO_VLAN_SETUP" ]; then
+                : # We need to really setup vlan (recursive call)
             else
                 netif="$bridgename"
                 use_bridge='true'
             fi
         fi
     done
-fi
-
-if [ -e /tmp/vlan.info ]; then
-    . /tmp/vlan.info
-    if [ "$netif" = "$phydevice" ]; then
-        if [ "$netif" = "$bondname" ] && [ -n "$DO_BOND_SETUP" ] ; then
-            : # We need to really setup bond (recursive call)
-        else
-            netif="$vlanname"
-            use_vlan='true'
-        fi
-    fi
 fi
 
 # disable manual ifup while netroot is set for simplifying our logic
@@ -134,11 +144,12 @@ if [ "$netif" = "lo" ] ; then
 fi
 
 # start bond if needed
-if [ -e /tmp/bond.info ]; then
-    . /tmp/bond.info
+if [ -e /tmp/bond.${netif}.info ]; then
+    . /tmp/bond.${netif}.info
 
     if [ "$netif" = "$bondname" ] && [ ! -e /tmp/net.$bondname.up ] ; then # We are master bond device
         modprobe bonding
+        echo "+$netif" >  /sys/class/net/bonding_masters
         ip link set $netif down
 
         # Stolen from ifup-eth
@@ -212,6 +223,10 @@ if [ -e /tmp/bridge.info ]; then
         for ethname in $ethnames ; do
             if [ "$ethname" = "$bondname" ] ; then
                 DO_BOND_SETUP=yes ifup $bondname -m
+            elif [ "$ethname" = "$teammaster" ] ; then
+                DO_TEAM_SETUP=yes ifup $teammaster -m
+            elif [ "$ethname" = "$vlanname" ]; then
+                DO_VLAN_SETUP=yes ifup $vlanname -m
             else
                 linkup $ethname
             fi
@@ -235,10 +250,13 @@ if [ "$netif" = "$vlanname" ] && [ ! -e /tmp/net.$vlanname.up ]; then
     modprobe 8021q
     if [ "$phydevice" = "$bondname" ] ; then
         DO_BOND_SETUP=yes ifup $phydevice -m
+    elif [ "$phydevice" = "$teammaster" ] ; then
+        DO_TEAM_SETUP=yes ifup $phydevice -m
     else
         linkup "$phydevice"
     fi
     ip link add dev "$vlanname" link "$phydevice" type vlan id "$(get_vid $vlanname)"
+    ip link set "$vlanname" up
 fi
 
 # setup nameserver

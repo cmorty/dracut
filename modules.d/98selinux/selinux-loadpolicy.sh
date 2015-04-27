@@ -24,7 +24,8 @@ rd_load_policy()
         local ret=0
         local out
         info "Loading SELinux policy"
-        # load_policy does mount /proc and /selinux in
+        mount -o bind /sys $NEWROOT/sys
+        # load_policy does mount /proc and /sys/fs/selinux in
         # libselinux,selinux_init_load_policy()
         if [ -x "$NEWROOT/sbin/load_policy" ]; then
             out=$(LANG=C chroot "$NEWROOT" /sbin/load_policy -i 2>&1)
@@ -35,6 +36,8 @@ rd_load_policy()
             ret=$?
             info $out
         fi
+        umount $NEWROOT/sys/fs/selinux
+        umount $NEWROOT/sys
 
         if [ "$SELINUX" = "disabled" ]; then
             return 0;
@@ -52,16 +55,14 @@ rd_load_policy()
         if [ $ret -eq 3 -o $permissive -eq 0 ]; then
             warn "Machine in enforcing mode."
             warn "Not continuing"
-            emergency_shell -n selinux
-            exit 1
+            action_on_fail -n selinux || exit 1
         fi
         return 0
     elif [ $permissive -eq 0 -a "$SELINUX" != "disabled" ]; then
         warn "Machine in enforcing mode and cannot execute load_policy."
         warn "To disable selinux, add selinux=0 to the kernel command line."
         warn "Not continuing"
-        emergency_shell -n selinux
-        exit 1
+        action_on_fail -n selinux || exit 1
     fi
 }
 

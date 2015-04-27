@@ -31,6 +31,7 @@ install() {
         60-pcmcia.rules \
         50-udev.rules 95-late.rules \
         50-firmware.rules \
+        80-net-name-slot.rules \
         "$moddir/59-persistent-storage.rules" \
         "$moddir/61-persistent-storage.rules"
 
@@ -68,6 +69,8 @@ install() {
         ${udevdir}/usb_id \
         ${udevdir}/pcmcia-socket-startup \
         ${udevdir}/pcmcia-check-broken-cis
+
+    dracut_install -o /etc/pcmcia/config.opts
 
     [ -f /etc/arch-release ] && \
         inst_script "$moddir/load-modules.sh" /lib/udev/load-modules.sh

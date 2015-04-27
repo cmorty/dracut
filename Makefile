@@ -1,5 +1,6 @@
-VERSION=027
-GITVERSION=$(shell [ -d .git ] && git rev-list  --abbrev-commit  -n 1 HEAD  |cut -b 1-8)
+RELEASEDVERSION = -- will be replaced by "make dist" --
+VERSION = $(shell [ -d .git ] && git describe --abbrev=0 --tags || echo $(RELEASEDVERSION))
+GITVERSION = $(shell [ -d .git ] && { v=$$(git describe --tags); echo -$${v\#*-}; } )
 
 -include Makefile.inc
 
@@ -35,7 +36,7 @@ man8pages = dracut.8 \
 manpages = $(man1pages) $(man5pages) $(man7pages) $(man8pages)
 
 
-.PHONY: install clean archive rpm testimage test all check AUTHORS doc
+.PHONY: install clean archive rpm testimage test all check AUTHORS doc dracut-version.sh
 
 all: syncheck dracut-version.sh dracut-install
 
@@ -136,9 +137,10 @@ endif
 	install -m 0755 51-dracut-rescue.install $(DESTDIR)${prefix}/lib/kernel/install.d/51-dracut-rescue.install
 	mkdir -p $(DESTDIR)${bashcompletiondir}
 	install -m 0644 dracut-bash-completion.sh $(DESTDIR)${bashcompletiondir}/dracut
+	install -m 0644 lsinitrd-bash-completion.sh $(DESTDIR)${bashcompletiondir}/lsinitrd
 
 dracut-version.sh:
-	@echo "DRACUT_VERSION=$(VERSION)-$(GITVERSION)" > dracut-version.sh
+	@echo "DRACUT_VERSION=$(VERSION)$(GITVERSION)" > dracut-version.sh
 
 clean:
 	$(RM) *~
@@ -147,11 +149,10 @@ clean:
 	$(RM) $(manpages:%=%.xml) dracut.xml
 	$(RM) test-*.img
 	$(RM) dracut-*.rpm dracut-*.tar.bz2
+	$(RM) dracut-version.sh
 	$(RM) dracut-install install/dracut-install $(DRACUT_INSTALL_OBJECTS)
 	$(RM) $(manpages) dracut.html
 	$(MAKE) -C test clean
-
-archive: dracut-$(VERSION)-$(GITVERSION).tar.bz2
 
 dist: dracut-$(VERSION).tar.bz2
 
@@ -159,7 +160,8 @@ dracut-$(VERSION).tar.bz2: doc
 	git archive --format=tar $(VERSION) --prefix=dracut-$(VERSION)/ > dracut-$(VERSION).tar
 	mkdir -p dracut-$(VERSION)
 	cp $(manpages) dracut.html dracut-$(VERSION)
-	tar -rf dracut-$(VERSION).tar dracut-$(VERSION)/*.[0-9] dracut-$(VERSION)/dracut.html
+	git show $(VERSION):Makefile | sed 's/^RELEASEDVERSION =.*/RELEASEDVERSION = $(VERSION)/' > dracut-$(VERSION)/Makefile
+	tar --owner=root --group=root -rf dracut-$(VERSION).tar dracut-$(VERSION)/*.[0-9] dracut-$(VERSION)/dracut.html dracut-$(VERSION)/Makefile
 	rm -fr dracut-$(VERSION).tar.bz2 dracut-$(VERSION)
 	bzip2 -9 dracut-$(VERSION).tar
 	rm -f dracut-$(VERSION).tar
@@ -178,14 +180,14 @@ syncheck:
                         modules.d/99base/init.sh modules.d/*/*.sh; do \
                 [ "$${i##*/}" = "module-setup.sh" ] && continue; \
                 read line < "$$i"; [ "$${line#*bash*}" != "$$line" ] && continue; \
-		dash -n "$$i" ; ret=$$(($$ret+$$?)); \
+		[ $$V ] && echo "dash syntax check: $$i"; dash -n "$$i" ; ret=$$(($$ret+$$?)); \
 	done;exit $$ret
 	@ret=0;for i in *.sh mkinitrd-dracut.sh modules.d/*/*.sh \
 	                modules.d/*/module-setup.sh; do \
-		bash -n "$$i" ; ret=$$(($$ret+$$?)); \
+		[ $$V ] && echo "bash syntax check: $$i"; bash -n "$$i" ; ret=$$(($$ret+$$?)); \
 	done;exit $$ret
 
-check: all syncheck
+check: all syncheck rpm
 	@[ "$$EUID" == "0" ] || { echo "'check' must be run as root! Please use 'sudo'."; exit 1; }
 	@$(MAKE) -C test check
 

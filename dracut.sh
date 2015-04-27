@@ -74,19 +74,21 @@ Creates initial ramdisk images for preloading modules
                          call when building the initramfs. Modules are located
                          in /usr/lib/dracut/modules.d.
   -o, --omit [LIST]     Omit a space-separated list of dracut modules.
+  --force-add [LIST]    Force to add a space-separated list of dracut modules
+                         to the default set of modules, when -H is specified.
   -d, --drivers [LIST]  Specify a space-separated list of kernel modules to
-                        exclusively include in the initramfs.
-  --add-drivers [LIST] Specify a space-separated list of kernel
-                        modules to add to the initramfs.
+                         exclusively include in the initramfs.
+  --add-drivers [LIST]  Specify a space-separated list of kernel
+                         modules to add to the initramfs.
   --omit-drivers [LIST] Specify a space-separated list of kernel
-                        modules not to add to the initramfs.
+                         modules not to add to the initramfs.
   --filesystems [LIST]  Specify a space-separated list of kernel filesystem
-                        modules to exclusively include in the generic
-                        initramfs.
+                         modules to exclusively include in the generic
+                         initramfs.
   -k, --kmoddir [DIR]   Specify the directory, where to look for kernel
-                        modules
+                         modules
   --fwdir [DIR]         Specify additional directories, where to look for
-                        firmwares, separated by :
+                         firmwares, separated by :
   --kernel-only         Only install kernel drivers and firmware files
   --no-kernel           Do not install kernel drivers and firmware files
   --kernel-cmdline [PARAMETERS] Specify default kernel command line parameters
@@ -317,7 +319,9 @@ TEMP=$(unset POSIXLY_CORRECT; getopt \
     --long quiet \
     --long local \
     --long hostonly \
+    --long host-only \
     --long no-hostonly \
+    --long no-host-only \
     --long fstab \
     --long help \
     --long bzip2 \
@@ -391,8 +395,10 @@ while :; do
                        [[ -f "$(readlink -f ${0%/*})/dracut-functions.sh" ]] \
                            && dracutbasedir="$(readlink -f ${0%/*})"
                        ;;
-        -H|--hostonly) hostonly_l="yes" ;;
-        -N|--no-hostonly) hostonly_l="no" ;;
+        -H|--hostonly|--host-only)
+                       hostonly_l="yes" ;;
+        -N|--no-hostonly|--no-host-only)
+                       hostonly_l="no" ;;
         --fstab)       use_fstab_l="yes" ;;
         -h|--help)     long_usage; exit 1 ;;
         -i|--include)  push include_src "$2"
@@ -824,7 +830,7 @@ if [[ $hostonly ]]; then
     # in hostonly mode, determine all devices, which have to be accessed
     # and examine them for filesystem types
 
-    push host_mp \
+    for mp in \
         "/" \
         "/etc" \
         "/usr" \
@@ -832,9 +838,8 @@ if [[ $hostonly ]]; then
         "/usr/sbin" \
         "/usr/lib" \
         "/usr/lib64" \
-        "/boot"
-
-    for mp in "${host_mp[@]}"; do
+        "/boot";
+    do
         mountpoint "$mp" >/dev/null 2>&1 || continue
         push host_devs $(readlink -f "/dev/block/$(find_block_device "$mp")")
     done
@@ -850,11 +855,19 @@ if [[ $hostonly ]]; then
             [[ "$_d" == UUID\=* ]] && _d="/dev/disk/by-uuid/${_d#UUID=}"
             [[ "$_d" == LABEL\=* ]] && _d="/dev/disk/by-label/$_d#LABEL=}"
             [[ "$_d" -ef "$dev" ]] || continue
+
+            while read _mapper _a _p _o; do
+                [[ $_mapper = \#* ]] && continue
+                [[ "$_d" -ef /dev/mapper/"$_mapper" ]] || continue
+                [[ "$_o" ]] || _o="$_p"
+                # skip mkswap swap
+                [[ $_o == *swap* ]] && continue 2
+            done < /etc/crypttab
+
             push host_devs $(readlink -f $dev)
             break
         done < /etc/fstab
     done < /proc/swaps
-
 fi
 
 _get_fs_type() (
@@ -1134,12 +1147,8 @@ fi
 PRELINK_BIN=$(command -v prelink)
 if [[ $UID = 0 ]] && [[ $PRELINK_BIN ]]; then
     if [[ $DRACUT_FIPS_MODE ]]; then
-        dinfo "*** Pre-unlinking files ***"
+        dinfo "*** Installing prelink files ***"
         dracut_install -o prelink /etc/prelink.conf /etc/prelink.conf.d/*.conf /etc/prelink.cache
-        chroot "$initdir" $PRELINK_BIN -u -a
-        rm -f "$initdir"/$PRELINK_BIN
-        rm -fr "$initdir"/etc/prelink.*
-        dinfo "*** Pre-unlinking files done ***"
     else
         dinfo "*** Pre-linking files ***"
         dracut_install -o prelink /etc/prelink.conf /etc/prelink.conf.d/*.conf
@@ -1160,7 +1169,7 @@ fi
 if [[ $do_strip = yes ]] ; then
     for p in strip xargs find; do
         if ! type -P $p >/dev/null; then
-            dwarn "Could not find '$p'. Not stripping the initramfs."
+            dinfo "Could not find '$p'. Not stripping the initramfs."
             do_strip=no
         fi
     done
@@ -1173,6 +1182,8 @@ if [[ $do_strip = yes ]] ; then
             -executable -not -path '*/lib/modules/*.ko' -print0 \
             | while read -r -d $'\0' f; do
             if ! [[ -e "${f%/*}/.${f##*/}.hmac" ]] \
+                && ! [[ -e "/lib/hmaccalc/${f##*/}.hmac" ]] \
+                && ! [[ -e "/lib64/hmaccalc/${f##*/}.hmac" ]] \
                 && ! [[ -e "/lib/fipscheck/${f##*/}.hmac" ]] \
                 && ! [[ -e "/lib64/fipscheck/${f##*/}.hmac" ]]; then
                 echo -n "$f"; echo -n -e "\000"

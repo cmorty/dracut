@@ -51,7 +51,6 @@ mount_boot()
 
 do_fips()
 {
-    info "Checking integrity of kernel"
     KERNEL=$(uname -r)
 
     if ! [ -e "/boot/.vmlinuz-${KERNEL}.hmac" ]; then
@@ -59,19 +58,21 @@ do_fips()
         return 1
     fi
 
-    sha512hmac -c "/boot/.vmlinuz-${KERNEL}.hmac" || return 1
-
     FIPSMODULES=$(cat /etc/fipsmodules)
 
     info "Loading and integrity checking all crypto modules"
     for module in $FIPSMODULES; do
         if [ "$module" != "tcrypt" ]; then
-            modprobe ${module} || return 1
+            modprobe ${module}
         fi
     done
     info "Self testing crypto algorithms"
     modprobe tcrypt || return 1
     rmmod tcrypt
+
+    info "Checking integrity of kernel"
+    sha512hmac -c "/boot/.vmlinuz-${KERNEL}.hmac" || return 1
+
     info "All initrd crypto checks done"
 
     > /tmp/fipsdone

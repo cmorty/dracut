@@ -8,7 +8,6 @@ KVERSION=${KVERSION-$(uname -r)}
 # Uncomment this to debug failures
 #DEBUGFAIL="rd.shell"
 #SERIAL="tcp:127.0.0.1:9999"
-SERIAL="null"
 
 run_server() {
     # Start server first
@@ -19,9 +18,9 @@ run_server() {
         -hda $TESTDIR/server.ext3 \
         -m 512M -smp 2 \
         -display none \
-        -netdev socket,mcast=230.0.0.1:12320,id=net0 \
-        -net nic,macaddr=52:54:01:12:34:56,model=e1000,netdev=net0 \
-        -serial $SERIAL \
+        -net socket,listen=127.0.0.1:12350 \
+        -net nic,macaddr=52:54:01:12:34:56,model=e1000 \
+        ${SERIAL+-serial $SERIAL} \
         -watchdog i6300esb -watchdog-action poweroff \
         -kernel /boot/vmlinuz-$KVERSION \
         -append "loglevel=77 root=/dev/sda rootfstype=ext3 rw console=ttyS0,115200n81 selinux=0" \
@@ -53,18 +52,16 @@ client_test() {
     fi
 
     $testdir/run-qemu -hda $TESTDIR/client.img -m 512M -smp 2 -nographic \
-        -netdev socket,mcast=230.0.0.1:12320,id=net0 \
-        -net nic,netdev=net0,macaddr=52:54:00:12:34:$mac1,model=e1000 \
-        -netdev socket,mcast=230.0.0.1:12320,id=net1 \
-        -net nic,netdev=net1,macaddr=52:54:00:12:34:$mac2,model=e1000 \
-        -netdev socket,mcast=230.0.0.1:12320,id=net2 \
-        -net nic,netdev=net2,macaddr=52:54:00:12:34:$mac3,model=e1000 \
+        -net socket,connect=127.0.0.1:12350 \
+        -net nic,macaddr=52:54:00:12:34:$mac1,model=e1000 \
+        -net nic,macaddr=52:54:00:12:34:$mac2,model=e1000 \
+        -net nic,macaddr=52:54:00:12:34:$mac3,model=e1000 \
         -watchdog i6300esb -watchdog-action poweroff \
         -kernel /boot/vmlinuz-$KVERSION \
-        -append "$cmdline $DEBUGFAIL rd.retry=5 rd.info  ro rd.systemd.log_level=debug console=ttyS0,115200n81 selinux=0 rd.copystate rd.chroot init=/sbin/init" \
+        -append "$cmdline $DEBUGFAIL rd.retry=5 rd.info ro console=ttyS0,115200n81 selinux=0 init=/sbin/init" \
         -initrd $TESTDIR/initramfs.testing
 
-    if [[ $? -ne 0 ]] || ! grep -m 1 -q OK $TESTDIR/client.img; then
+    if [[ $? -ne 0 ]] || ! grep -F -m 1 -q OK $TESTDIR/client.img; then
         echo "CLIENT TEST END: $test_name [FAILED - BAD EXIT]"
         return 1
     fi
@@ -72,7 +69,7 @@ client_test() {
 
     for i in $check ; do
         echo $i
-        if ! grep -m 1 -q $i $TESTDIR/client.img; then
+        if ! grep -F -m 1 -q $i $TESTDIR/client.img; then
             echo "CLIENT TEST END: $test_name [FAILED - BAD IF]"
             return 1
         fi
@@ -173,6 +170,7 @@ test_setup() {
         type -P dhcpd >/dev/null && dracut_install dhcpd
         [ -x /usr/sbin/dhcpd3 ] && inst /usr/sbin/dhcpd3 /usr/sbin/dhcpd
         instmods nfsd sunrpc ipv6 lockd af_packet
+        inst_simple /etc/os-release
         inst ./server-init.sh /sbin/init
         inst ./hosts /etc/hosts
         inst ./exports /etc/exports
@@ -211,6 +209,7 @@ test_setup() {
             [ -f ${_terminfodir}/l/linux ] && break
         done
         dracut_install -o ${_terminfodir}/l/linux
+        inst_simple /etc/os-release
         inst ./client-init.sh /sbin/init
         (
             cd "$initdir"
@@ -252,14 +251,14 @@ test_setup() {
     # Make server's dracut image
     $basedir/dracut.sh -l -i $TESTDIR/overlay / \
         -m "dash udev-rules base rootfs-block debug kernel-modules watchdog" \
-        -d "af_packet piix ide-gd_mod ata_piix ext3 sd_mod nfsv2 nfsv3 nfsv4 nfs_acl nfs_layout_nfsv41_files nfsd e1000 i6300esbwdt" \
+        -d "af_packet piix ide-gd_mod ata_piix ext3 sd_mod nfsv2 nfsv3 nfsv4 nfs_acl nfs_layout_nfsv41_files nfsd e1000 i6300esb ib700wdt" \
         -f $TESTDIR/initramfs.server $KVERSION || return 1
 
     # Make client's dracut image
     $basedir/dracut.sh -l -i $TESTDIR/overlay / \
         -o "plymouth" \
         -a "debug" \
-        -d "af_packet piix sd_mod sr_mod ata_piix ide-gd_mod e1000 nfsv2 nfsv3 nfsv4 nfs_acl nfs_layout_nfsv41_files sunrpc i6300esbwdt" \
+        -d "af_packet piix sd_mod sr_mod ata_piix ide-gd_mod e1000 nfsv2 nfsv3 nfsv4 nfs_acl nfs_layout_nfsv41_files sunrpc i6300esb ib700wdt" \
         -f $TESTDIR/initramfs.testing $KVERSION || return 1
 }
 

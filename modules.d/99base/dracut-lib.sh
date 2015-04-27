@@ -2,6 +2,9 @@
 # -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
 # ex: ts=8 sw=4 sts=4 et filetype=sh
 
+export DRACUT_SYSTEMD
+export NEWROOT
+
 debug_off() {
     set +x
 }
@@ -325,6 +328,7 @@ splitsep() {
 }
 
 setdebug() {
+    [ -f /etc/initrd-release ] || return
     if [ -z "$RD_DEBUG" ]; then
         if [ -e /proc/cmdline ]; then
             RD_DEBUG=no
@@ -383,7 +387,7 @@ die() {
         echo "warn dracut: FATAL: \"$*\"";
         echo "warn dracut: Refusing to continue";
     } >> $hookdir/emergency/01-die.sh
-
+    [ -d /run/initramfs ] || mkdir -p /run/initramfs
     > /run/initramfs/.die
     emergency_shell
     exit 1
@@ -818,6 +822,15 @@ wait_for_mount()
     } >> "$hookdir/emergency/90-${_name}.sh"
 }
 
+dev_unit_name()
+{
+    _name="${1%%/}"
+    _name="${_name##/}"
+    _name="$(str_replace "$_name" '-' '\x2d')"
+    _name="$(str_replace "$_name" '/' '-')"
+    echo "$_name"
+}
+
 # wait_for_dev <dev>
 #
 # Installs a initqueue-finished script,
@@ -835,14 +848,18 @@ wait_for_dev()
     } >> "${PREFIX}$hookdir/emergency/80-${_name}.sh"
 
     if [ -n "$DRACUT_SYSTEMD" ]; then
-        _name="${1%%/}"
-        _name="${_name##/}"
-        _name="$(str_replace "$_name" '-' '\x2d')"
-        _name="$(str_replace "$_name" '/' '-')"
+        _name=$(dev_unit_name "$1")
         if ! [ -L ${PREFIX}/etc/systemd/system/initrd.target.requires/${_name}.device ]; then
             [ -d ${PREFIX}/etc/systemd/system/initrd.target.requires ] || mkdir -p ${PREFIX}/etc/systemd/system/initrd.target.requires
             ln -s ../${_name}.device ${PREFIX}/etc/systemd/system/initrd.target.requires/${_name}.device
         fi
+
+        mkdir -p ${PREFIX}/etc/systemd/system/${_name}.device.d
+        {
+            echo "[Unit]"
+            echo "JobTimeoutSec=3600"
+        } > ${PREFIX}/etc/systemd/system/${_name}.device.d/timeout.conf
+        [ -z "$PREFIX" ] && /sbin/initqueue --onetime --unique --name daemon-reload systemctl daemon-reload
     fi
 }
 
@@ -852,6 +869,12 @@ cancel_wait_for_dev()
     _name="$(str_replace "$1" '/' '\\x2f')"
     rm -f "$hookdir/initqueue/finished/devexists-${_name}.sh"
     rm -f "$hookdir/emergency/80-${_name}.sh"
+    if [ -n "$DRACUT_SYSTEMD" ]; then
+        _name=$(dev_unit_name "$1")
+        rm -f ${PREFIX}/etc/systemd/system/initrd.target.requires/${_name}.device
+        rm -f ${PREFIX}/etc/systemd/system/${_name}.device.d/timeout.conf
+        /sbin/initqueue --onetime --unique --name daemon-reload systemctl daemon-reload
+    fi
 }
 
 killproc() {
@@ -906,7 +929,7 @@ _emergency_shell()
     local _name="$1"
     if [ -n "$DRACUT_SYSTEMD" ]; then
         > /.console_lock
-        echo "PS1=\"$_name:\${PWD}# \"" >/etc/profile
+        echo "PS1=\"$_name:\\\${PWD}# \"" >/etc/profile
         systemctl start dracut-emergency.service
         rm -f /etc/profile
         rm -f /.console_lock
@@ -952,8 +975,8 @@ emergency_shell()
         shift 2
     elif [ "$1" = "--shutdown" ]; then
         _rdshell_name=$2; action="Shutdown"; hook="shutdown-emergency"
-        if [ -x /bin/plymouth ]; then
-            /bin/plymouth --hide-splash
+        if type plymouth >/dev/null 2>&1; then
+            plymouth --hide-splash
         elif [ -x /oldroot/bin/plymouth ]; then
             /oldroot/bin/plymouth --hide-splash
         fi
@@ -973,6 +996,28 @@ emergency_shell()
         exit 1
     fi
     [ -e /run/initramfs/.die ] && exit 1
+}
+
+action_on_fail()
+{
+    local _action=$(getarg rd.action_on_fail= -d action_on_fail=)
+    case "$_action" in
+        continue)
+            [ "$1" = "-n" ] && shift 2
+            [ "$1" = "--shutdown" ] && shift 2
+            warn "$*"
+            warn "Not dropping to emergency shell, because 'action_on_fail=continue' was set on the kernel command line."
+            return 0
+            ;;
+        shell)
+            emergency_shell $@
+            return 1
+            ;;
+        *)
+            emergency_shell $@
+            return 1
+            ;;
+    esac
 }
 
 # Retain the values of these variables but ensure that they are unexported
@@ -1017,7 +1062,7 @@ listlist() {
 
 # returns OK if both lists contain the same values.  An order and a duplication
 # doesn't matter.
-# 
+#
 # $1 = separator
 # $2 = list1
 # $3 = list2

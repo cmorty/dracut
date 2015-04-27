@@ -42,12 +42,12 @@ installkernel() {
         instmods yenta_socket scsi_dh_rdac scsi_dh_emc \
             atkbd i8042 usbhid hid-apple hid-sunplus hid-cherry hid-logitech \
             hid-logitech-dj hid-microsoft firewire-ohci \
-            pcmcia usb_storage
+            pcmcia usb_storage nvme hid-hyperv hv-vmbus
 
         if [[ "$(uname -p)" == arm* ]]; then
             # arm specific modules
             hostonly='' instmods sdhci_esdhc_imx mmci sdhci_tegra mvsdio omap omapdrm \
-                omap_hsmmc sdhci_dove ahci_platform pata_imx sata_mv
+                omap_hsmmc panel-tfp410 sdhci_dove ahci_platform pata_imx sata_mv
         fi
 
         # install virtual machine support

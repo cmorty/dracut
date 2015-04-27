@@ -50,9 +50,12 @@ find / -xdev -type f -not -path '/var/*' \
   -not -path '/test.output' \
   -not -path '/etc/nsswitch.conf.bak' \
   -not -path '/etc/iscsi/initiatorname.iscsi' \
+  -not -path '/boot/*0-rescue*' \
   -not -path '/dev/null' \
+  -not -path "/boot/loader/entries/\$(cat /etc/machine-id)-*" \
+  -not -path "/boot/\$(cat /etc/machine-id)/*" \
   -exec rpm -qf '{}' ';' | \
-  fgrep 'not owned' &> /test.output
+  grep -F 'not owned' &> /test.output
 exit
 EOF
 

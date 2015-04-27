@@ -55,6 +55,15 @@ if ! ismounted /dev; then
     exit 1
 fi
 
+# setup system time
+if [ -f /etc/adjtime ]; then
+    if strstr "$(cat /etc/adjtime)" LOCAL; then
+        hwclock --hctosys --localtime
+    else
+        hwclock --hctosys --utc
+    fi
+fi
+
 # prepare the /dev directory
 [ ! -h /dev/fd ] && ln -s /proc/self/fd /dev/fd >/dev/null 2>&1
 [ ! -h /dev/stdin ] && ln -s /proc/self/fd/0 /dev/stdin >/dev/null 2>&1
@@ -79,7 +88,7 @@ if ! ismounted /run; then
     rm -fr /newrun
 fi
 
-trap "emergency_shell Signal caught!" 0
+trap "action_on_fail Signal caught!" 0
 
 [ -d /run/initramfs ] || mkdir -p -m 0755 /run/initramfs
 [ -d /run/log ] || mkdir -p -m 0755 /run/log
@@ -104,7 +113,7 @@ else
 fi
 
 [ -f /etc/initrd-release ] && . /etc/initrd-release
-[ -n "$VERSION" ] && info "dracut-$VERSION"
+[ -n "$VERSION_ID" ] && info "$NAME-$VERSION_ID"
 
 source_conf /etc/conf.d
 
@@ -199,7 +208,7 @@ while :; do
 
     main_loop=$(($main_loop+1))
     [ $main_loop -gt $RDRETRY ] \
-        && { flock -s 9 ; emergency_shell "Could not boot."; } 9>/.console_lock
+        && { flock -s 9 ; action_on_fail "Could not boot." && break; } 9>/.console_lock
 done
 unset job
 unset queuetriggered
@@ -234,7 +243,7 @@ while :; do
 
     i=$(($i+1))
     [ $i -gt 20 ] \
-        && { flock -s 9 ; emergency_shell "Can't mount root filesystem"; } 9>/.console_lock
+        && { flock -s 9 ; action_on_fail "Can't mount root filesystem" && break; } 9>/.console_lock
 done
 
 {
@@ -268,7 +277,7 @@ done
 [ "$INIT" ] || {
     echo "Cannot find init!"
     echo "Please check to make sure you passed a valid root filesystem!"
-    emergency_shell
+    action_on_fail
 }
 
 if [ $UDEVVERSION -lt 168 ]; then
@@ -370,13 +379,13 @@ if [ -f /etc/capsdrop ]; then
 	warn "Command:"
 	warn capsh --drop=$CAPS_INIT_DROP -- -c exec switch_root "$NEWROOT" "$INIT" $initargs
 	warn "failed."
-	emergency_shell
+	action_on_fail
     }
 else
     unset RD_DEBUG
     exec $SWITCH_ROOT "$NEWROOT" "$INIT" $initargs || {
 	warn "Something went very badly wrong in the initramfs.  Please "
 	warn "file a bug against dracut."
-	emergency_shell
+	action_on_fail
     }
 fi

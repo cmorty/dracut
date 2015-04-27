@@ -14,8 +14,10 @@ fix_bootif() {
     echo $macaddr | sed 'y/ABCDEF/abcdef/'
 }
 
+getargbool 0 rd.neednet && NEEDNET=1
+
 # Don't continue if we don't need network
-if [ -z "$netroot" ] && [ ! -e "/tmp/net.ifaces" ] && ! getargbool 0 rd.neednet >/dev/null; then
+if [ -z "$netroot" ] && [ ! -e "/tmp/net.ifaces" ] && [ "$NEEDNET" != "1" ]; then
     return
 fi
 
@@ -25,23 +27,30 @@ fi
     if [ -e /tmp/bridge.info ]; then
         . /tmp/bridge.info
         IFACES="$IFACES ${ethnames%% *}"
+        MASTER_IFACES="$MASTER_IFACES $bridgename"
     fi
 
     # bond: attempt only the defined interface (override bridge defines)
-    if [ -e /tmp/bond.info ]; then
-        . /tmp/bond.info
+    for i in /tmp/bond.*.info; do
+        [ -e "$i" ] || continue
+        unset bondslaves
+        unset bondname
+        . "$i"
         # It is enough to fire up only one
         IFACES="$IFACES ${bondslaves%% *}"
-    fi
+        MASTER_IFACES="$MASTER_IFACES ${bondname}"
+    done
 
     if [ -e /tmp/team.info ]; then
         . /tmp/team.info
         IFACES="$IFACES ${teamslaves}"
+        MASTER_IFACES="$MASTER_IFACES ${teammaster}"
     fi
 
     if [ -e /tmp/vlan.info ]; then
         . /tmp/vlan.info
         IFACES="$IFACES $phydevice"
+        MASTER_IFACES="$MASTER_IFACES ${vlanname}"
     fi
 
     if [ -z "$IFACES" ]; then
@@ -66,11 +75,16 @@ fi
     elif [ -n "$IFACES" ] ; then
         for iface in $IFACES ; do
             printf 'SUBSYSTEM=="net", ENV{INTERFACE}=="%s", RUN+="%s"\n' "$iface" "/sbin/initqueue --onetime $ifup"
-            if [ "$bootdev" = "$iface" ]; then
+            if [ "$bootdev" = "$iface" ] || [ "$NEEDNET" = "1" ]; then
                 echo "[ -f /tmp/setup_net_${iface}.ok ]" >$hookdir/initqueue/finished/wait-$iface.sh
             fi
         done
 
+        for iface in $MASTER_IFACES; do
+            if [ "$bootdev" = "$iface" ] || [ "$NEEDNET" = "1" ]; then
+                echo "[ -f /tmp/setup_net_${iface}.ok ]" >$hookdir/initqueue/finished/wait-$iface.sh
+            fi
+        done
     # Default: We don't know the interface to use, handle all
     # Fixme: waiting for the interface as well.
     else

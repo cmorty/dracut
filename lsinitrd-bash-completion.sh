@@ -24,38 +24,21 @@ __contains_word () {
         return 1
 }
 
-_dracut() {
+_lsinitrd() {
         local field_vals= cur=${COMP_WORDS[COMP_CWORD]} prev=${COMP_WORDS[COMP_CWORD-1]}
         local -A OPTS=(
-                [STANDALONE]='-f -v -q -l -H -h -M -N
-                              --ro-mnt --force --kernel-only --no-kernel --strip --nostrip
-                              --hardlink --nohardlink --noprefix --mdadmconf --nomdadmconf
-                              --lvmconf --nolvmconf --debug --profile --verbose --quiet
-                              --local --hostonly --no-hostonly --fstab --help --bzip2 --lzma
-                              --xz --no-compress --gzip --list-modules --show-modules --keep
-                              --printsize --regenerate-all --noimageifnotneeded'
+                [STANDALONE]='-s --size -h --help'
 
-                       [ARG]='-a -m -o -d -I -k -c -L --kver --add --force-add --add-drivers
-                              --omit-drivers --modules --omit --drivers --filesystems --install
-                              --fwdir --libdirs --fscks --add-fstab --mount --device --nofscks
-                              --kmoddir --conf --confdir --tmpdir --stdlog --compress --prefix
-                              --kernel-cmdline --sshkey'
+                       [ARG]='-f --file -k --kver'
         )
 
         if __contains_word "$prev" ${OPTS[ARG]}; then
                 case $prev in
-                        --kmoddir|-k|--fwdir|--confdir|--tmpdir)
-                                comps=$(compgen -d -- "$cur")
-                                compopt -o filenames
-                        ;;
-                        -c|--conf|--sshkey|--add-fstab|--add-device|-I|--install)
+                        --file|-f)
                                 comps=$(compgen -f -- "$cur")
                                 compopt -o filenames
                         ;;
-                        -a|-m|-o|--add|--modules|--omit)
-                                comps=$(dracut --list-modules 2>/dev/null)
-                        ;;
-                        --kver)
+                        --kver|-k)
                                 comps=$(cd /lib/modules; echo [0-9]*)
                         ;;
                         *)
@@ -70,6 +53,11 @@ _dracut() {
                 COMPREPLY=( $(compgen -W '${OPTS[*]}' -- "$cur") )
                 return 0
         fi
+
+        comps=$(compgen -f -- "$cur")
+        compopt -o filenames
+        COMPREPLY=( $(compgen -W '$comps' -- "$cur") )
+        return 0
 }
 
-complete -F _dracut dracut
+complete -F _lsinitrd lsinitrd
