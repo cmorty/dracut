@@ -4,7 +4,7 @@ TEST_DESCRIPTION="root filesystem on NBD"
 KVERSION=${KVERSION-$(uname -r)}
 
 # Uncomment this to debug failures
-#DEBUGFAIL="rdinitdebug rdnetdebug rdbreak"
+#DEBUGFAIL="rdinitdebug rdnetdebug"
 
 run_server() {
     # Start server first
@@ -119,22 +119,6 @@ test_run() {
  	52:54:00:12:34:00 \
  	"root=nbd:192.168.50.1:2000:ext2:errors=panic:bs=2048" \
  	ext2 errors=panic || return 1
-
-     # Check legacy parsing
-
-     client_test "NBD root=nbd nbdroot=srv:port" 52:54:00:12:34:00 \
- 	"root=nbd nbdroot=192.168.50.1:2000" || return 1
-
-     # This test must fail: root=dhcp ignores nbdroot
-     client_test "NBD root=dhcp nbdroot=srv:port" 52:54:00:12:34:00 \
-	"root=dhcp nbdroot=192.168.50.1:2000" && return 1
-
-     client_test "NBD root=nbd nbdroot=srv,port" 52:54:00:12:34:00 \
-	 "root=nbd nbdroot=192.168.50.1,2000" || return 1
-
-     # This test must fail: root=dhcp ignores nbdroot
-     client_test "NBD root=dhcp nbdroot=srv,port" 52:54:00:12:34:00 \
-	"root=dhcp nbdroot=192.168.50.1,2000" && return 1
 
     # DHCP root-path parsing
 
@@ -308,7 +292,8 @@ test_setup() {
 	-f initramfs.server $KVERSION || return 1
 
     sudo $basedir/dracut -l -i overlay / \
-        -o "plymouth" \
+	-o "plymouth" \
+	-a "debug" \
 	-d "ata_piix ext2 ext3 sd_mod e1000" \
 	-f initramfs.testing $KVERSION || return 1
 }
