@@ -82,12 +82,16 @@ ifdown() {
     ip addr flush dev $netif
     echo "#empty" > /etc/resolv.conf
     rm -f -- /tmp/net.$netif.did-setup
+    [ -e /sys/class/net/$netif/address ] && \
+        rm -f -- /tmp/net.$(cat /sys/class/net/$netif/address).did-setup
     # TODO: send "offline" uevent?
 }
 
 setup_net() {
     local netif="$1" f="" gw_ip="" netroot_ip="" iface="" IFACES=""
     [ -e /tmp/net.$netif.did-setup ] && return
+    [ -e /sys/class/net/$netif/address ] && \
+        [ -e /tmp/net.$(cat /sys/class/net/$netif/address).did-setup ] && return
     [ -e "/tmp/net.ifaces" ] && read IFACES < /tmp/net.ifaces
     [ -z "$IFACES" ] && IFACES="$netif"
     # run the scripts written by ifup
@@ -123,12 +127,14 @@ setup_net() {
         read layer2 < /sys/class/net/$netif/device/layer2
     fi
 
-    if [ "$layer2" != "0" ] && [ -n "$dest" ] && ! arping -q -f -w 60 -I $netif $dest ; then
-        info "Resolving $dest via ARP on $netif failed"
+    if [ "$layer2" != "0" ] && [ -n "$dest" ] && ! strstr "$dest" ":"; then
+        arping -q -f -w 60 -I $netif $dest || info "Resolving $dest via ARP on $netif failed"
     fi
     unset layer2
 
     > /tmp/net.$netif.did-setup
+    [ -e /sys/class/net/$netif/address ] && \
+        > /tmp/net.$(cat /sys/class/net/$netif/address).did-setup
 }
 
 save_netinfo() {
@@ -185,6 +191,7 @@ ibft_to_cmdline() {
         for iface in /sys/firmware/ibft/ethernet*; do
             local mac="" dev=""
             local dhcp="" ip="" gw="" mask="" hostname=""
+            local dns1 dns2
 
             [ -e ${iface}/mac ] || continue
             mac=$(read a < ${iface}/mac; echo $a)
@@ -203,9 +210,11 @@ ibft_to_cmdline() {
                 [ "$ip" = "0.0.0.0" ] && continue
                 [ -e ${iface}/gateway ] && gw=$(read a < ${iface}/gateway; echo $a)
                 [ -e ${iface}/subnet-mask ] && mask=$(read a < ${iface}/subnet-mask; echo $a)
+                [ -e ${iface}/primary-dns ] && dns1=$(read a < ${iface}/primary-dns; echo $a)
+                [ -e ${iface}/secondary-dns ] && dns2=$(read a < ${iface}/secondary-dns; echo $a)
                 [ -e ${iface}/hostname ] && hostname=$(read a < ${iface}/hostname; echo $a)
                 if [ -n "$ip" ] && [ -n "$mask" ]; then
-                    echo "ip=$ip::$gw:$mask:$hostname:$dev:none"
+                    echo "ip=$ip::$gw:$mask:$hostname:$dev:none${dns1:+:$dns1}${dns2:+:$dns2}"
                 else
                     warn "${iface} does not contain a valid iBFT configuration"
                     warn "ip-addr=$ip"
@@ -339,7 +348,7 @@ ip_to_var() {
         fi
     done
 
-    unset ip srv gw mask hostname dev autoconf macaddr mtu
+    unset ip srv gw mask hostname dev autoconf macaddr mtu dns1 dns2
     case $# in
         0)  autoconf="error" ;;
         1)  autoconf=$1 ;;
@@ -347,11 +356,22 @@ ip_to_var() {
         3)  [ -n "$1" ] && dev=$1; [ -n "$2" ] && autoconf=$2; [ -n "$3" ] && mtu=$3 ;;
         4)  [ -n "$1" ] && dev=$1; [ -n "$2" ] && autoconf=$2; [ -n "$3" ] && mtu=$3; [ -n "$4" ] && macaddr=$4 ;;
         *)  [ -n "$1" ] && ip=$1; [ -n "$2" ] && srv=$2; [ -n "$3" ] && gw=$3; [ -n "$4" ] && mask=$4;
-            [ -n "$5" ] && hostname=$5; [ -n "$6" ] && dev=$6; [ -n "$7" ] && autoconf=$7; [ -n "$8" ] && mtu=$8;
-            if [ -n "${9}" -a -n "${10}" -a -n "${11}" -a -n "${12}" -a -n "${13}" -a -n "${14}" ]; then
-                macaddr="${9}:${10}:${11}:${12}:${13}:${14}"
-            fi
-	    ;;
+            [ -n "$5" ] && hostname=$5; [ -n "$6" ] && dev=$6; [ -n "$7" ] && autoconf=$7;
+            case "$8" in
+                [0-9]*:*|[0-9]*.[0-9]*.[0-9]*.[0-9]*)
+                    dns1="$8"
+                    [ -n "$9" ] && dns2="$9"
+                    ;;
+                [0-9]*)
+                    mtu="$8"
+                    ;;
+                *)
+                    if [ -n "${9}" -a -n "${10}" -a -n "${11}" -a -n "${12}" -a -n "${13}" -a -n "${14}" ]; then
+                        macaddr="${9}:${10}:${11}:${12}:${13}:${14}"
+                    fi
+	            ;;
+            esac
+            ;;
     esac
 
     # ip=<ipv4-address> means anaconda-style static config argument cluster:
@@ -437,12 +457,26 @@ wait_for_route_ok() {
     return 1
 }
 
+wait_for_ipv6_dad() {
+    local cnt=0
+    local li
+    while [ $cnt -lt 500 ]; do
+        li=$(ip -6 addr show dev $1)
+        strstr "$li" "tentative" || return 0
+        sleep 0.1
+        cnt=$(($cnt+1))
+    done
+    return 1
+}
+
 wait_for_ipv6_auto() {
     local cnt=0
     local li
     while [ $cnt -lt 400 ]; do
         li=$(ip -6 addr show dev $1)
-        strstr "$li" "dynamic" && return 0
+        if ! strstr "$li" "tentative"; then
+            strstr "$li" "dynamic" && return 0
+        fi
         sleep 0.1
         cnt=$(($cnt+1))
     done
