@@ -19,11 +19,20 @@ sub last_tag {
 sub create_patches {
     my $tag=shift;
     my $num=0;
-    open( GIT, 'git format-patch -M -N --no-signature '.$tag.' |');
+    open( GIT, 'git format-patch --no-renames -N --no-signature '.$tag.' |');
     @lines=<GIT>;
     close GIT;         # be done
     return @lines;
 };
+
+sub filter_patch {
+	my $patch=shift;
+	open(P, $patch);
+	@lines=<P>;
+	close(P);
+	grep (/^ 0 files changed/, @lines);
+}
+
 use POSIX qw(strftime);
 my $datestr = strftime "%Y%m%d", gmtime;
 
@@ -40,12 +49,13 @@ while(<>) {
 	print "Version: $tag\n";
     }
     elsif (/^Release:/) {
-	print "Release: $release\n";
+	print "Release: $release%{?dist}\n";
     }
     elsif ((/^Source0:/) || (/^Source:/)) {
 	print $_;
 	$num=1;
 	for(@patches) {
+	    next if filter_patch $_;
 	    print "Patch$num: $_";
 	    $num++;
 	}
@@ -55,6 +65,7 @@ while(<>) {
 	print $_;
 	$num=1;
 	for(@patches) {
+	    next if filter_patch $_;
 	    print "%patch$num -p1\n";
 	    $num++;
 	}

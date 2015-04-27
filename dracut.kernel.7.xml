@@ -87,7 +87,7 @@ accordingly.</para>
             <envar>rd.driver.blacklist=<replaceable>&lt;drivername&gt;<optional>,&lt;drivername&gt;,...</optional></replaceable></envar>
           </term>
           <listitem>
-            <para>do not load kernel module &lt;drivername&gt;
+            <para>do not load kernel module &lt;drivername&gt;.
 This parameter can be specified multiple times.</para>
           </listitem>
         </varlistentry>
@@ -96,7 +96,7 @@ This parameter can be specified multiple times.</para>
             <envar>rd.driver.pre=<replaceable>&lt;drivername&gt;<optional>,&lt;drivername&gt;,...</optional></replaceable></envar>
           </term>
           <listitem>
-            <para>force loading kernel module &lt;drivername&gt;
+            <para>force loading kernel module &lt;drivername&gt;.
 This parameter can be specified multiple times.</para>
           </listitem>
         </varlistentry>
@@ -176,7 +176,7 @@ This parameter can be specified multiple times.</para>
       <variablelist>
         <varlistentry>
           <term>
-            <envar>voonsole.keymap=</envar>
+            <envar>vconsole.keymap=</envar>
             <replaceable>&lt;keymap base file name&gt;</replaceable>
           </term>
           <listitem>
@@ -420,7 +420,7 @@ e.g.
             <envar>ip=</envar><replaceable>{dhcp|on|any|dhcp6|auto6|ibft}</replaceable>
           </term>
           <listitem>
-            <para>dhcp|on|any: get ip from dhcp server from all interfaces. If root=dhcp,
+            <para><constant>dhcp|on|any</constant>: get ip from dhcp server from all interfaces. If root=dhcp,
 loop sequentially through all interfaces (eth0, eth1, ...) and use the first
 with a valid DHCP root-path.</para>
             <para><constant>auto6</constant>: IPv6 autoconfiguration</para>
@@ -431,9 +431,9 @@ with a valid DHCP root-path.</para>
         <varlistentry>
           <term><envar>ip=</envar><replaceable>&lt;interface&gt;</replaceable>:<replaceable>{dhcp|on|any|dhcp6|auto6}</replaceable></term>
           <listitem>
-            <para>dhcp|on|any|dhcp6: get ip from dhcp server on a specific interface
-auto6: do IPv6 autoconfiguration
-This parameter can be specified multiple times.</para>
+            <para><constant>dhcp|on|any|dhcp6</constant>: get ip from dhcp server on a specific interface</para>
+	    <para><constant>auto6</constant>: do IPv6 autoconfiguration</para>
+	    <para>This parameter can be specified multiple times.</para>
           </listitem>
         </varlistentry>
         <varlistentry>
@@ -698,7 +698,36 @@ rd.znet=ctc,0.0.0600,0.0.0601,0.0.0602,protocol=bar</programlisting></para>
         <varlistentry>
           <term><envar>rd.plymouth</envar>=0</term>
           <listitem>
-            <para>disable plymouth. This will not work with encrypted partitions.</para>
+            <para>disable the plymouth bootsplash.</para>
+          </listitem>
+        </varlistentry>
+      </variablelist>
+    </refsect2>
+   <refsect2>
+      <title>Kernel keys</title>
+      <variablelist>
+        <varlistentry>
+          <term><envar>masterkey=</envar><replaceable>&lt;kernel master key path name&gt;</replaceable></term>
+          <listitem>
+            <para>Set the path name of the kernel master key. e.g.: <programlisting>masterkey=/etc/keys/kmk-trusted.blob</programlisting></para>
+          </listitem>
+        </varlistentry>
+        <varlistentry>
+          <term><envar>masterkeytype=</envar><replaceable>&lt;kernel master key type&gt;</replaceable></term>
+          <listitem>
+            <para>Set the type of the kernel master key. e.g.: <programlisting>masterkeytype=trusted</programlisting></para>
+          </listitem>
+        </varlistentry>
+        <varlistentry>
+          <term><envar>evmkey=</envar><replaceable>&lt;EVM key path name&gt;</replaceable></term>
+          <listitem>
+            <para>Set the path name of the EVM key. e.g.: <programlisting>evmkey=/etc/keys/evm-trusted.blob</programlisting></para>
+          </listitem>
+        </varlistentry>
+        <varlistentry>
+          <term><envar>ecryptfskey=</envar><replaceable>&lt;eCryptfs key path name&gt;</replaceable></term>
+          <listitem>
+            <para>Set the path name of the eCryptfs key. e.g.: <programlisting>ecryptfskey=/etc/keys/ecryptfs-trusted.blob</programlisting></para>
           </listitem>
         </varlistentry>
       </variablelist>
