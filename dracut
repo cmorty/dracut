@@ -46,8 +46,8 @@ Creates initial ramdisk images for preloading modules
                         firmwares, separated by :
   --kernel-only         Only install kernel drivers and firmware files
   --no-kernel           Do not install kernel drivers and firmware files
-  --strip               Strip binaries in the initramfs (default)
-  --nostrip             Do not strip binaries in the initramfs
+  --strip               Strip binaries in the initramfs
+  --nostrip             Do not strip binaries in the initramfs (default)
   --mdadmconf           Include local /etc/mdadm.conf
   --nomdadmconf         Do not include local /etc/mdadm.conf
   --lvmconf             Include local /etc/lvm/lvm.conf
@@ -138,12 +138,14 @@ fi
 # source our config file
 [[ -f $conffile ]] && . "$conffile"
 
+# these optins add to the stuff in the config file
+[[ $add_dracutmodules_l ]] && add_dracutmodules+=" $add_dracutmodules_l"
+[[ $add_drivers_l ]] && add_drivers+=" $add_drivers_l"
+
 # these options override the stuff in the config file
 [[ $dracutmodules_l ]] && dracutmodules=$dracutmodules_l
 [[ $omit_dracutmodules_l ]] && omit_dracutmodules=$omit_dracutmodules_l
-[[ $add_dracutmodules_l ]] && add_dracutmodules="$add_dracutmodules $add_dracutmodules_l"
 [[ $drivers_l ]] && drivers=$drivers_l
-[[ $add_drivers_l ]] && add_drivers=$add_drivers_l
 [[ $filesystems_l ]] && filesystems=$filesystems_l
 [[ $drivers_dir_l ]] && drivers_dir=$drivers_dir_l
 [[ $fw_dir_l ]] && fw_dir=$fw_dir_l
@@ -153,7 +155,7 @@ fi
 [[ $lvmconf_l ]] && lvmconf=$lvmconf_l
 [[ $dracutbasedir ]] || dracutbasedir=/usr/share/dracut
 [[ $fw_dir ]] || fw_dir=/lib/firmware
-[[ $do_strip ]] || do_strip=yes
+[[ $do_strip ]] || do_strip=no
 # eliminate IFS hackery when messing with fw_dir
 fw_dir=${fw_dir//:/ }
 
@@ -181,7 +183,13 @@ esac
 abs_outfile=$(readlink -f "$outfile") && outfile="$abs_outfile"
 
 srcmods="/lib/modules/$kernel/"
-[[ $drivers_dir ]] && srcmods="$drivers_dir"
+[[ $drivers_dir ]] && {
+    if vercmp $(modprobe --version | cut -d' ' -f3) lt 3.7; then
+        derror 'To use --kmoddir option module-init-tools >= 3.7 is required.'
+        exit 1
+    fi
+    srcmods="$drivers_dir"
+}
 export srcmods
 
 if [[ -f $outfile && ! $force ]]; then
@@ -276,7 +284,7 @@ ldconfig -r "$initdir" || [[ $(id -u) != "0" ]] && dinfo "ldconfig might need ui
 
 # strip binaries 
 if [[ $do_strip = yes ]] ; then
-    for p in strip objdump sed grep find; do 
+    for p in strip grep find; do 
 	if ! which $p >/dev/null 2>&1; then
 	    derror "Could not find '$p'. You should run $0 with '--nostrip'."
 	    do_strip=no
@@ -285,11 +293,9 @@ if [[ $do_strip = yes ]] ; then
 fi
 
 if [[ $do_strip = yes ]] ; then
-    for f in $(find "$initdir" -type f \( -perm -0100 -or -perm -0010 -or -perm -0001 -or -path '/lib/modules/*.ko' \) -exec file {} \; | 
-	grep -v ' shared object,' | 
-	sed -n -e 's/^\(.*\):[ 	]*ELF.*, not stripped/\1/p'); do
+    for f in $(find "$initdir" -type f \( -perm -0100 -or -perm -0010 -or -perm -0001 -or -path '/lib/modules/*.ko' \) ); do
 	dinfo "Stripping $f"
-	strip -g "$f" || :
+	strip -g "$f" 2>/dev/null|| :
         #
         # FIXME: only strip -g for now
         #
@@ -303,7 +309,8 @@ if [[ $do_strip = yes ]] ; then
     done
 fi
 
-( cd "$initdir"; find . |cpio -R 0:0 -H newc -o --quiet |gzip -9 > "$outfile"; ) 
+type pigz &>/dev/null && gzip=pigz || gzip=gzip
+( cd "$initdir"; find . |cpio -R 0:0 -H newc -o --quiet |$gzip -9 > "$outfile"; ) 
 if [ $? -ne 0 ]; then
     derror "dracut: creation of $outfile failed"
     exit 1

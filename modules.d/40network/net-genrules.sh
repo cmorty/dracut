@@ -6,6 +6,8 @@ fix_bootif() {
     local IFS='-'
     macaddr=$(for i in ${macaddr} ; do echo -n $i:; done)
     macaddr=${macaddr%:}
+    # strip hardware type field from pxelinux
+    [ -n "${macaddr%??:??:??:??:??:??}" ] && macaddr=${macaddr#??:}
     echo $macaddr
 }
 
@@ -29,7 +31,7 @@ fix_bootif() {
     # If we have to handle multiple interfaces, handle only them.
     elif [ -n "$IFACES" ] ; then
 	for iface in $IFACES ; do
-	    printf 'ACTION=="add", SUBSYSTEM=="net", NAME=="%s", RUN+="/sbin/ifup $env{INTERFACE}"\n' "$iface"
+	    printf 'ACTION=="add", SUBSYSTEM=="net", ENV{INTERFACE}=="%s", RUN+="/sbin/ifup $env{INTERFACE}"\n' "$iface"
 	done
 
     # Default: We don't know the interface to use, handle all

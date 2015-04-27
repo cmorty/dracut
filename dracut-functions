@@ -24,6 +24,33 @@ IF_dynamic=""
 # Generic substring function.  If $2 is in $1, return 0.
 strstr() { [[ $1 =~ $2 ]]; }
 
+# Version comparision function.  Assumes Linux style version scheme.
+# $1 = version a
+# $2 = comparision op (gt, ge, eq, le, lt, ne)
+# $3 = version b
+vercmp() {
+    local n1=(${1//./ }) op=$2 n2=(${3//./ }) i res
+
+    for ((i=0; ; i++))
+    do
+        if [[ ! ${n1[i]}${n2[i]} ]]; then res=0
+        elif ((${n1[i]:-0} > ${n2[i]:-0})); then res=1
+        elif ((${n1[i]:-0} < ${n2[i]:-0})); then res=2
+        else continue
+        fi
+        break
+    done
+
+    case $op in
+        gt) ((res == 1));;
+        ge) ((res != 2));;
+        eq) ((res == 0));;
+        le) ((res != 1));;
+        lt) ((res == 2));;
+        ne) ((res != 0));;
+    esac
+}
+
 # Log initrd creation.
 if ! [[ $dracutlogfile ]]; then
     [[ $dracutbasedir = /usr/share/dracut ]] && \
@@ -51,6 +78,9 @@ derror() {
 }
 
 get_fs_env() {
+    eval $(udevadm info --query=env --name=$1|egrep 'ID_FS_(TYPE|UUID)=')
+    [[ $ID_FS_TYPE ]] && return
+
     if [[ -x /lib/udev/vol_id ]]; then
 	eval $(/lib/udev/vol_id --export $1)
     elif find_binary blkid >/dev/null; then
@@ -94,6 +124,9 @@ check_block_and_slaves() {
     [[ -b /dev/block/$2 ]] || return 1 # Not a block device? So sorry.
     "$1" $2 && return
     check_vol_slaves "$@" && return 0
+    if [[ -f "/sys/dev/block/$2/../dev" ]]; then
+	check_block_and_slaves $1 $(cat "/sys/dev/block/$2/../dev") &&  return 0
+    fi
     [[ -d /sys/dev/block/$2/slaves ]] || return 1
     for x in /sys/dev/block/$2/slaves/*/dev; do
         [[ -f $x ]] || continue
@@ -381,12 +414,14 @@ should_source_module() {
     "$1/check" $hostonly || return 1
     for dep in $("$1/check" -d); do
 	check_module_deps "$dep" && continue
-	dwarning "Cannot load $mod, dependencies failed."
+	dwarning "Cannot load dracut module \"$mod\", dependencies failed."
 	return 1
     done
 }
 
 check_modules() {
+    local modcheck;
+    local mod;
     for moddir in "$dracutbasedir/modules.d"/[0-9][0-9]*; do
 	local mod=${moddir##*/}; mod=${mod#[0-9][0-9]}
 	# If we are already scheduled to be loaded, no need to check again.
@@ -400,6 +435,14 @@ check_modules() {
 	    should_source_module "$moddir" || continue
         fi
 	mods_to_load+=" $mod "
+    done
+
+    modcheck=$add_dracutmodules
+    [[ $dracutmodules != all ]] && modcheck="$m $dracutmodules"
+    for mod in $modcheck; do
+        strstr "$mods_to_load" "$mod" && continue
+        strstr "$omit_dracutmodules" "$mod" && continue
+        dwarning "Dracut module \"$mod\" cannot be found."
     done
 }
 
@@ -419,7 +462,7 @@ install_kmod_with_fw() {
 	    fi
 	done
 	if [[ $found != yes ]]; then
-	    dinfo "Possible missing firmware ${fw} for module ${mod}.ko"
+	    dinfo "Possible missing firmware \"${fw}\" for kernel module \"${mod}.ko\""
 	fi
     done
 }
@@ -471,7 +514,7 @@ filter_kernel_modules () (
 # install kernel modules along with all their dependencies.
 instmods() {
     [[ $no_kernel = yes ]] && return
-    local mod mpargs modpath modname cmd
+    local mod mpargs modpath modname cmd moddirname
     while (($# > 0)); do
 	mod=${1%.ko*}
 	case $mod in
@@ -503,10 +546,17 @@ instmods() {
 	        ! echo $add_drivers | grep -qe "\<${mod}\>" &&	{
 		    shift; continue; 
 		}
+
+		# We use '-d' option in modprobe only if modules prefix path
+		# differs from default '/'.  This allows us to use Dracut with
+		# old version of modprobe which doesn't have '-d' option.
+		moddirname=${srcmods%%/lib/modules/*}
+		[[ -n ${moddirname} ]] && moddirname="-d ${moddirname}/"
+
 		# ok, load the module, all its dependencies, and any firmware
 		# it may require
 		for_each_kmod_dep install_kmod_with_fw $mod \
-		    --set-version $kernel -d ${srcmods%%/lib/modules/*}/
+		    --set-version $kernel ${moddirname}
 		;;
 	esac      
 	shift

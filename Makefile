@@ -1,4 +1,4 @@
-VERSION=005
+VERSION=006
 GITVERSION=$(shell [ -d .git ] && git rev-list  --abbrev-commit  -n 1 HEAD  |cut -b 1-8)
 
 prefix ?= /usr
@@ -50,6 +50,8 @@ endif
 
 clean:
 	rm -f *~
+	rm -f */*~
+	rm -f */*/*~
 	rm -f modules.d/99base/switch_root
 	rm -f test-*.img
 	rm -f dracut-*.rpm dracut-*.tar.bz2

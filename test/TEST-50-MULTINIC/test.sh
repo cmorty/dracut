@@ -12,7 +12,7 @@ run_server() {
 
     $testdir/run-qemu -hda server.ext2 -m 256M -nographic \
 	-net nic,macaddr=52:54:00:12:34:56,model=e1000 \
-	-net socket,mcast=230.0.0.1:1234 \
+	-net socket,listen=127.0.0.1:12345 \
 	-serial udp:127.0.0.1:9999 \
 	-kernel /boot/vmlinuz-$KVERSION \
 	-append "selinux=0 root=/dev/sda rdinitdebug rdinfo rdnetdebug rw quiet console=ttyS0,115200n81" \
@@ -46,9 +46,12 @@ client_test() {
   	-net nic,macaddr=52:54:00:12:34:$mac1,model=e1000 \
   	-net nic,macaddr=52:54:00:12:34:$mac2,model=e1000 \
   	-net nic,macaddr=52:54:00:12:34:$mac3,model=e1000 \
-  	-net socket,mcast=230.0.0.1:1234 \
+	-net socket,connect=127.0.0.1:12345 \
+        -drive if=ide,index=1,media=disk \
+        -drive if=ide,index=2,media=disk \
+        -drive if=ide,index=3,media=disk \
   	-kernel /boot/vmlinuz-$KVERSION \
-  	-append "$cmdline $DEBUGFAIL rdinitdebug rdinfo rdnetdebug ro quiet console=ttyS0,115200n81 selinux=0 rdshell rdcopystate" \
+  	-append "$cmdline $DEBUGFAIL rd_retry=5 rdinitdebug rdinfo rdnetdebug ro quiet console=ttyS0,115200n81 selinux=0 rdcopystate" \
   	-initrd initramfs.testing
 
     if [[ $? -ne 0 ]] || ! grep -m 1 -q OK client.img; then
@@ -75,7 +78,10 @@ test_run() {
 	echo "Failed to start server" 1>&2
 	return 1
     fi
+    test_client || { kill_server; return 1; }
+}
 
+test_client() {
     # Mac Numbering Scheme
     # ...:00-02 receive IP adresses all others don't
     # ...:02 receives a dhcp root-path
@@ -109,6 +115,9 @@ test_run() {
 	00 01 02 \
 	"root=dhcp ip=eth0:dhcp ip=eth1:dhcp ip=eth2:dhcp bootdev=eth2" \
 	"eth0 eth1 eth2" || return 1
+
+    kill_server
+    return 0
 }
 
 test_setup() {
@@ -145,7 +154,16 @@ test_setup() {
  	fi
 
  	dracut_install $(ls {/usr,}$LIBDIR/libnfsidmap*.so* 2>/dev/null )
+ 	dracut_install $(ls {/usr,}$LIBDIR/libnfsidmap/*.so 2>/dev/null )
  	dracut_install $(ls {/usr,}$LIBDIR/libnss*.so 2>/dev/null)
+
+
+	nsslibs=$(sed -e '/^#/d' -e 's/^.*://' -e 's/\[NOTFOUND=return\]//' /etc/nsswitch.conf \
+              |  tr -s '[:space:]' '\n' | sort -u | tr -s '[:space:]' '|')
+	nsslibs=${nsslibs#|}
+	nsslibs=${nsslibs%|}
+
+	dracut_install $(for i in $(ls {/usr,}$LIBDIR/libnss*.so 2>/dev/null); do echo $i;done | egrep "$nsslibs")
  	(
  	    cd "$initdir";
  	    mkdir -p dev sys proc etc var/run tmp var/lib/{dhcpd,rpcbind}
@@ -213,15 +231,18 @@ test_setup() {
     $basedir/dracut -l -i overlay / \
 	-o "plymouth" \
 	-a "debug" \
-	-d "piix ide-gd_mod e1000 nfs sunrpc" \
+	-d "piix sd_mod sr_mod ata_piix ide-gd_mod e1000 nfs sunrpc" \
 	-f initramfs.testing $KVERSION || return 1
 }
 
-test_cleanup() {
+kill_server() {
     if [[ -s server.pid ]]; then
 	sudo kill -TERM $(cat server.pid)
 	rm -f server.pid
     fi
+}
+
+test_cleanup() {
     rm -rf mnt overlay
     rm -f server.ext2 client.img initramfs.server initramfs.testing
 }

@@ -3,10 +3,11 @@ if [[ -z $drivers ]]; then
     block_module_test() {
 	local blockfuncs='ata_scsi_ioctl|scsi_add_host|blk_init_queue|register_mtd_blktrans|scsi_esp_register|register_virtio_device'
 
-	 nm -uPA "$1" | egrep -q "$blockfuncs"
+	egrep -q "$blockfuncs" "$1"
     }
-    hostonly='' instmods pcmcia sd_mod scsi_dh scsi_dh_rdac scsi_dh_emc
-    hostonly='' instmods firewire-ohci
+    hostonly='' instmods sr_mod sd_mod scsi_dh scsi_dh_rdac scsi_dh_emc
+    hostonly='' instmods pcmcia firewire-ohci
+    hostonly='' instmods usb_storage sdhci sdhci-pci
 
     # install keyboard support
     hostonly='' instmods atkbd i8042 usbhid hid-apple ehci-hcd ohci-hcd uhci-hcd
@@ -17,14 +18,15 @@ if [[ -z $drivers ]]; then
     if ! [[ $hostonly ]]; then
 	if [[ -z $filesystems ]]; then
 	    instmods '=fs'
+	    # hardcoded list of exceptions
+	    # to save a lot of space
+	    rm -fr ${initdir}/lib/modules/*/kernel/fs/ocfs2
 	else
 	    instmods $filesystems
 	fi
     else
 	hostonly='' instmods $(get_fs_type "/dev/block/$(find_root_block_device)")
     fi
-    # hardcoded list of exceptions
-    rm -fr ${initdir}/lib/modules/*/kernel/fs/ocfs2
 else
   hostonly='' instmods $drivers $filesystems
 fi

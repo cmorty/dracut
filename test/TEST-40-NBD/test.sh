@@ -13,7 +13,7 @@ run_server() {
     $testdir/run-qemu -hda server.ext2 -hdb nbd.ext2 -hdc encrypted.ext2 \
 	-m 256M -nographic \
 	-net nic,macaddr=52:54:00:12:34:56,model=e1000 \
-	-net socket,mcast=230.0.0.1:1236 \
+	-net socket,listen=127.0.0.1:12345 \
 	-serial udp:127.0.0.1:9999 \
 	-kernel /boot/vmlinuz-$KVERSION \
 	-append "root=/dev/sda rw quiet console=ttyS0,115200n81 selinux=0" \
@@ -48,7 +48,7 @@ client_test() {
 
     $testdir/run-qemu -hda flag.img -m 256M -nographic \
 	-net nic,macaddr=$mac,model=e1000 \
-	-net socket,mcast=230.0.0.1:1236 \
+	-net socket,connect=127.0.0.1:12345 \
 	-kernel /boot/vmlinuz-$KVERSION \
 	-append "$cmdline $DEBUGFAIL rdinitdebug rdinfo rdnetdebug ro quiet console=ttyS0,115200n81 selinux=0" \
 	-initrd initramfs.testing
@@ -84,10 +84,15 @@ client_test() {
 }
 
 test_run() {
+    modinfo nbd &>/dev/null || { echo "Kernel does not support nbd"; exit 1; }
     if ! run_server; then
 	echo "Failed to start server" 1>&2
 	return 1
     fi
+    client_run || { kill_server; return 1; }
+}
+
+client_run() {
 
     # The default is ext3,errors=continue so use that to determine
     # if our options were parsed and used
@@ -283,6 +288,9 @@ make_server_root() {
 }
 
 test_setup() {
+
+    modinfo nbd &>/dev/null || { echo "Kernel does not support nbd"; exit 1; }
+
     make_encrypted_root || return 1
     make_client_root || return 1
     make_server_root || return 1
@@ -309,11 +317,15 @@ test_setup() {
 	-f initramfs.testing $KVERSION || return 1
 }
 
-test_cleanup() {
+kill_server() {
     if [[ -s server.pid ]]; then
 	sudo kill -TERM $(cat server.pid)
 	rm -f server.pid
     fi
+}
+
+test_cleanup() {
+    kill_server
     rm -fr overlay mnt
     rm -f flag.img server.ext2 nbd.ext2 encrypted.ext2
     rm -f initramfs.server initramfs.testing initramfs.makeroot

@@ -11,10 +11,16 @@ PATH=$PATH:/sbin:/usr/sbin
 # Huh? Missing arguments ??
 [ -z "$1" -o -z "$2" ] && exit 1
 
+export PS4="fcoe-up.$1.$$ + "
+exec >>/dev/initlog.pipe 2>>/dev/initlog.pipe
+. /lib/dracut-lib.sh
+
 netif=$1
 dcb=$2
 
 /sbin/ip link set "$netif" up
+wait_for_if_up "$netif"
+
 if [ "$dcb" = "dcb" ]; then
     # Note lldpad will stay running after switchroot, the system initscripts
     # are to kill it and start a new lldpad to take over. Data is transfered

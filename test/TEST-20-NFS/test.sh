@@ -12,7 +12,7 @@ run_server() {
 
     $testdir/run-qemu -hda server.ext2 -m 256M -nographic \
 	-net nic,macaddr=52:54:00:12:34:56,model=e1000 \
-	-net socket,mcast=230.0.0.1:1234 \
+	-net socket,listen=127.0.0.1:12345 \
 	-serial udp:127.0.0.1:9999 \
 	-kernel /boot/vmlinuz-$KVERSION \
 	-append "root=/dev/sda rw quiet console=ttyS0,115200n81 selinux=0" \
@@ -44,9 +44,9 @@ client_test() {
 
     $testdir/run-qemu -hda client.img -m 256M -nographic \
   	-net nic,macaddr=$mac,model=e1000 \
-  	-net socket,mcast=230.0.0.1:1234 \
+	-net socket,connect=127.0.0.1:12345 \
   	-kernel /boot/vmlinuz-$KVERSION \
-  	-append "$cmdline $DEBUGFAIL rdinitdebug rdinfo quiet rdnetdebug ro console=ttyS0,115200n81 selinux=0" \
+  	-append "$cmdline $DEBUGFAIL rdinitdebug rd_retry=10 rdinfo quiet rdnetdebug ro console=ttyS0,115200n81 selinux=0" \
   	-initrd initramfs.testing
 
     if [[ $? -ne 0 ]] || ! grep -m 1 -q nfs-OK client.img; then
@@ -178,12 +178,17 @@ test_run() {
 	return 1
     fi
 
-    test_nfsv3 || return 1
-    test_nfsv4
+    test_nfsv3 && \
+	test_nfsv4
+
+    ret=$?
+
     if [[ -s server.pid ]]; then
 	sudo kill -TERM $(cat server.pid)
 	rm -f server.pid
     fi
+
+    return $ret
 }
 
 test_setup() {

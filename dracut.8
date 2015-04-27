@@ -28,10 +28,13 @@ omit a space-separated list of dracut modules.
 add a space-separated list of dracut modules.
 .TP
 .BR \-d ", " \-\-drivers " \fILIST\fR"
-specify a space-separated list of kernel modules to exclusively include#
+specify a space-separated list of kernel modules to exclusively include
 in the initramfs.
+The kernel modules have to be specified without the ".ko" suffix.
+.TP
 .BR \-\-add-drivers " \fILIST\fR"
 specify a space-separated list of kernel modules to add to the initramfs.
+The kernel modules have to be specified without the ".ko" suffix.
 .TP
 .BR \-\-filesystems " \fILIST\fR"
 specify a space-separated list of kernel filesystem modules to exclusively 
@@ -132,9 +135,11 @@ do not honor special mount options for the root filesystem found in
 .TP
 .BR rdblacklist= <drivername>
 do not load kernel module <drivername>
+This parameter can be specified multiple times.
 .TP
 .BR rdloaddriver= <drivername>
 force loading kernel module <drivername>
+This parameter can be specified multiple times.
 
 .SS Debug
 .TP
@@ -160,9 +165,6 @@ set udev to loglevel info
 .TP
 .B rdudevdebug
 set udev to loglevel debug
-.TP
-.B rdnetdebug
-debug network scripts in dracut. Output is written to /tmp/
 
 .SS I18N
  e.g.
@@ -198,7 +200,7 @@ only activate the volume groups with the given name
 rd_LVM_VG can be specified multiple times on the kernel command line.
 .TP
 .BR rd_LVM_LV= "<logical volume name>"
-only activate the volume groups with the given name
+only activate the logical volumes with the given name
 rd_LVM_LV can be specified multiple times on the kernel command line.
 .TP
 .BR rd_NO_LVMCONF
@@ -214,8 +216,10 @@ only activate the LUKS partitions with the given UUID
 Any "luks-" of the LUKS UUID is removed before comparing to <luks uuid>.
 The comparisons also matches, if <luks uuid> is only the beginning of the 
 LUKS UUID, so you don't have to specify the full UUID.
+This parameter can be specified multiple times.
+.TP
 .BR rd_NO_CRYPTTAB
-do not check if LUKS partition is in /etc/crypttab
+do not check, if LUKS partition is in /etc/crypttab
 
 .SS MD
 .TP
@@ -229,7 +233,8 @@ no MD RAID for imsm/isw raids, use dmraid instead
 ignore mdadm.conf included in initramfs
 .TP
 .BR rd_MD_UUID= "<md uuid>"
-only activate the raid sets with the given UUID
+only activate the raid sets with the given UUID.
+This parameter can be specified multiple times.
 
 .SS DMRAID
 .TP
@@ -237,7 +242,8 @@ only activate the raid sets with the given UUID
 disable DM RAID detection
 .TP
 .BR rd_DM_UUID= "<dmraid uuid>"
-only activate the raid sets with the given UUID
+only activate the raid sets with the given UUID.
+This parameter can be specified multiple times.
 
 .SS Network
 .TP
@@ -250,19 +256,22 @@ auto6: do IPv6 autoconfiguration
 .TP
 .BR ip= <interface>:{dhcp|on|any|dhcp6|auto6}
 dhcp|on|any|dhcp6: get ip from dhcp server on a specific interface
-
 auto6: do IPv6 autoconfiguration
+This parameter can be specified multiple times.
+
 .TP
 .ad l
 .BR ip= "\%<client-IP>\::[<server-id>]\::<gateway-IP>\::<netmask>\::<client\%hostname>\::<interface>\::{none|off}"
 .ad
 explicit network configuration. If you want do define a IPv6 address, put it in brackets (e.g. [2001:DB8::1]).
+This parameter can be specified multiple times.
 .TP
 .BR ifname= <interface>:<MAC>
 Assign network device name <interface> (ie eth0) to the NIC with MAC <MAC>.
 Note letters in the MAC-address must be lowercase!
 Note that if you use this option you \fBmust\fR specify an ifname= argument
 for all interfaces used in ip= or fcoe= arguments
+This parameter can be specified multiple times.
 .TP
 .BR bootdev= <interface>
 specify network interface to use routing and netroot information from. 
@@ -323,7 +332,6 @@ e.g. root=iscsi:192.168.50.1::::iqn.2009-06.dracut:target0
 .BR root= ??? " netroot=" "\%iscsi:[username:password[:reverse:password]@]\:[<servername>]\::[<protocol>]\::[<port>]\::[<LUN>]\::<targetname> ..."
 .ad
 multiple netroot options allow setting up multiple iscsi disks
-.B Not yet implemented!
  e.g. 
   root=UUID=12424547
   netroot=iscsi:192.168.50.1::::iqn.2009-06.dracut:target0
@@ -370,6 +378,7 @@ same syntax as the kernel module parameter (s390 only)
 .ad
 activate DASD device with the given adaptor device bus ID and setting the sysfs attributes
 to the specified values
+This parameter can be specified multiple times.
 
 .SS ZFCP
 .TP
@@ -381,12 +390,12 @@ example: rd_ZFCP=0.0.4000,0x5005076300C213e9,0x5022000000000000
 .BR rd_NO_ZFCPCONF
 ignore zfcp.conf included in the initramfs
 
-.SS CCW
+.SS ZNET
 .TP
-.BR rd_CCW= "<nettype>,<subchannels>,<options>"
-rd_CCW can be specified multiple times on the kernel command line. Examples:
-    rd_CCW=qeth,0.0.0600,0.0.0601,0.0.0602,layer2=1,portname=foo
-    rd_CCW=ctc,0.0.0600,0.0.0601,0.0.0602,protocol=bar
+.BR rd_ZNET= "<nettype>,<subchannels>,<options>"
+rd_ZNET can be specified multiple times on the kernel command line. Examples:
+    rd_ZNET=qeth,0.0.0600,0.0.0601,0.0.0602,layer2=1,portname=foo
+    rd_ZNET=ctc,0.0.0600,0.0.0601,0.0.0602,protocol=bar
 
 .SS "Plymouth Boot Splash"
 .TP

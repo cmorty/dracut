@@ -10,7 +10,6 @@ wait_for_loginit()
 {
     if getarg rdinitdebug; then
 	set +x
-	exec 1>- 2>-
 	exec 0<>/dev/console 1<>/dev/console 2<>/dev/console
 	# wait for loginit
 	i=0
@@ -147,9 +146,13 @@ getarg 'rdbreak=pre-trigger' && emergency_shell -n pre-trigger "Break before pre
 source_all pre-trigger
 
 # then the rest
-udevadm trigger $udevtriggeropts  >/dev/null 2>&1
+udevadm trigger --action=add $udevtriggeropts  >/dev/null 2>&1
 
 getarg 'rdbreak=initqueue' && emergency_shell -n initqueue "Break before initqueue"
+
+RDRETRY=$(getarg 'rd_retry=')
+RDRETRY=${RDRETRY:-20}
+RDRETRY=$(($RDRETRY*2))
 
 i=0
 while :; do
@@ -186,8 +189,20 @@ while :; do
 
     # no more udev jobs and queues empty.
     sleep 0.5
+
+    # dirty hack for some cdrom drives,
+    # which report no medium for quiet
+    # some time.
+    for cdrom in /sys/block/sr*; do
+	[ -e "$cdrom" ] || continue
+	# skip, if cdrom medium was already found
+        strstr "$(udevadm info --query=env --path=${cdrom##/sys})" \
+	    ID_CDROM_MEDIA && continue
+        echo change > "$cdrom/uevent"        
+    done
+    
     i=$(($i+1))
-    [ $i -gt 20 ] \
+    [ $i -gt $RDRETRY ] \
         && { flock -s 9 ; emergency_shell "No root device found"; } 9>/.console_lock
 done
 unset job
