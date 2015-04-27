@@ -1,4 +1,6 @@
 #!/bin/sh
+# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
+# ex: ts=8 sw=4 sts=4 et filetype=sh
 
 get_ip() {
     local iface="$1" ip=""
@@ -272,7 +274,12 @@ ip_to_var() {
         2)  dev=$1; autoconf=$2 ;;
         3)  dev=$1; autoconf=$2; mtu=$3 ;;
         4)  dev=$1; autoconf=$2; mtu=$3; macaddr=$4 ;;
-        *)  ip=$1; srv=$2; gw=$3; mask=$4; hostname=$5; dev=$6; autoconf=$7; mtu=$8; macaddr=$9 ;;
+        *)  ip=$1; srv=$2; gw=$3; mask=$4;
+            hostname=$5; dev=$6; autoconf=$7; mtu=$8;
+            if [ -n "${9}" -a -n "${10}" -a -n "${11}" -a -n "${12}" -a -n "${13}" -a -n "${14}" ]; then
+                macaddr="${9}:${10}:${11}:${12}:${13}:${14}"
+            fi
+	    ;;
     esac
     # anaconda-style argument cluster
     if strstr "$autoconf" "*.*.*.*"; then
@@ -315,3 +322,46 @@ parse_ifname_opts() {
     esac
 
 }
+
+# some network driver need long time to initialize, wait before it's ready.
+wait_for_if_link() {
+    local cnt=0
+    local li
+    while [ $cnt -lt 600 ]; do
+        li=$(ip -o link show dev $1 2>/dev/null)
+        [ -n "$li" ] && return 0
+        sleep 0.1
+        cnt=$(($cnt+1))
+    done
+    return 1
+}
+
+wait_for_if_up() {
+    local cnt=0
+    local li
+    while [ $cnt -lt 200 ]; do
+        li=$(ip -o link show up dev $1)
+        [ -n "$li" ] && return 0
+        sleep 0.1
+        cnt=$(($cnt+1))
+    done
+    return 1
+}
+
+wait_for_route_ok() {
+    local cnt=0
+    while [ $cnt -lt 200 ]; do
+        li=$(ip route show)
+        [ -n "$li" ] && [ -z "${li##*$1*}" ] && return 0
+        sleep 0.1
+        cnt=$(($cnt+1))
+    done
+    return 1
+}
+
+linkup() {
+    wait_for_if_link $1 2>/dev/null\
+     && ip link set $1 up 2>/dev/null\
+     && wait_for_if_up $1 2>/dev/null
+}
+

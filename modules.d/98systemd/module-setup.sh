@@ -85,7 +85,7 @@ install() {
         $systemdsystemunitdir/initrd-switch-root.target \
         $systemdsystemunitdir/initrd-switch-root.service \
         $systemdsystemunitdir/umount.target \
-        journalctl systemctl echo
+        journalctl systemctl echo swapoff
 
     if [[ $hostonly ]]; then
         dracut_install -o /etc/systemd/journald.conf \
@@ -145,5 +145,14 @@ install() {
 
     inst_script "$moddir/service-to-run.sh" "${systemdutildir}/system-generators/service-to-run"
     inst_rules 99-systemd.rules
+
+    # turn off RateLimit for journal
+    {
+        echo "[Journal]"
+        echo "RateLimitInterval=0"
+        echo "RateLimitBurst=0"
+    } >> "$initdir/etc/systemd/journald.conf"
+
+
 }
 
