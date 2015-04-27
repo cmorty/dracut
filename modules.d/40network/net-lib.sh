@@ -205,16 +205,33 @@ ibft_to_cmdline() {
             mac=$(read a < ${iface}/mac; echo $a)
             [ -z "$mac" ] && continue
             dev=$(set_ifname ibft $mac)
-            dhcp=$(read a < ${iface}/dhcp; echo $a)
+            [ -e ${iface}/dhcp ] && dhcp=$(read a < ${iface}/dhcp; echo $a)
+            if [ -e ${iface}/vlan ]; then
+               vlan=$(read a < ${iface}/vlan; echo $a)
+                echo "vlan=$vlan:$dev"
+            fi
+
             if [ -n "$dhcp" ]; then
                 echo "ip=$dev:dhcp"
+            elif [ -e ${iface}/ip-addr ]; then
+                [ -e ${iface}/ip-addr ] && ip=$(read a < ${iface}/ip-addr; echo $a)
+                [ -e ${iface}/gateway ] && gw=$(read a < ${iface}/gateway; echo $a)
+                [ -e ${iface}/subnet-mask ] && mask=$(read a < ${iface}/subnet-mask; echo $a)
+                [ -e ${iface}/hostname ] && hostname=$(read a < ${iface}/hostname; echo $a)
+                if [ -n "$ip" ] && [ -n "$mask" ]; then
+                    echo "ip=$ip::$gw:$mask:$hostname:$dev:none"
+                else
+                    warn "${iface} does not contain a valid iBFT configuration"
+                    warn "ip-addr=$ip"
+                    warn "gateway=$gw"
+                    warn "subnet-mask=$mask"
+                    warn "hostname=$hostname"
+                fi
             else
-                ip=$(read a < ${iface}/ip-addr; echo $a)
-                gw=$(read a < ${iface}/gateway; echo $a)
-                mask=$(read a < ${iface}/subnet-mask; echo $a)
-                hostname=$(read a < ${iface}/hostname; echo $a)
-                echo "ip=$ip::$gw:$mask:$hostname:$dev:none"
+                info "${iface} does not contain a valid iBFT configuration"
+                ls -l ${iface} | vinfo
             fi
+
             echo $mac > /tmp/net.${dev}.has_ibft_config
         done
     ) >> /etc/cmdline.d/40-ibft.conf

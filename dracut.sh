@@ -245,24 +245,24 @@ dropindirs_sort()
     local -a files
     local f d
 
-    readarray -t files < <(
-        for d in "$@"; do
-            for i in "$d/"*"$suffix"; do
-                if [[ -e "$i" ]]; then
-                    printf "%s\n" "${i##*/}"
-                fi
-            done
-        done | sort -Vu
-    )
-
-    for f in "${files[@]}"; do
-        for d in "$@"; do
-            if [[ -e "$d/$f" ]]; then
-                printf "%s\n" "$d/$f"
-                continue 2
+    for d in "$@"; do
+        for i in "$d/"*"$suffix"; do
+            if [[ -e "$i" ]]; then
+                printf "%s\n" "${i##*/}"
             fi
         done
-    done
+    done | sort -Vu | {
+        readarray -t files
+
+        for f in "${files[@]}"; do
+            for d in "$@"; do
+                if [[ -e "$d/$f" ]]; then
+                    printf "%s\n" "$d/$f"
+                    continue 2
+                fi
+            done
+        done
+    }
 }
 
 verbosity_mod_l=0
@@ -683,7 +683,15 @@ if [[ $early_microcode = yes ]]; then
     }
 fi
 # clean up after ourselves no matter how we die.
-trap 'ret=$?;[[ $outfile ]] && [[ -f $outfile.$$ ]] && rm -f -- "$outfile.$$";[[ $keep ]] && echo "Not removing $initdir." >&2 || { [[ $initdir ]] && rm -rf -- "$initdir"; [[ $microcode_dir ]] && rm -Rf -- "$microcode_dir"; exit $ret; };' EXIT
+trap '
+    ret=$?;
+    [[ $outfile ]] && [[ -f $outfile.$$ ]] && rm -f -- "$outfile.$$";
+    [[ $keep ]] && echo "Not removing $initdir." >&2 || { [[ $initdir ]] && rm -rf -- "$initdir"; };
+    [[ $keep ]] && echo "Not removing $microcode_dir." >&2 || { [[ $microcode_dir ]] && rm -Rf -- "$microcode_dir"; };
+    [[ $_dlogdir ]] && rm -Rf -- "$_dlogdir";
+    exit $ret;
+    ' EXIT
+
 # clean up after ourselves no matter how we die.
 trap 'exit 1;' SIGINT
 
@@ -761,7 +769,7 @@ for ((i=0; i < ${#dracut_args[@]}; i++)); do
         dracut_args[$i]="\"${dracut_args[$i]}\""
         #" keep vim happy
 done
-ddebug "Executing: $0 ${dracut_args[@]}"
+dinfo "Executing: $0 ${dracut_args[@]}"
 
 [[ $do_list = yes ]] && {
     for mod in $dracutbasedir/modules.d/*; do
@@ -855,70 +863,70 @@ if [[ $hostonly ]]; then
     for mp in \
         "/" \
         "/etc" \
-        "/usr" \
-        "/usr/bin" \
-        "/usr/sbin" \
-        "/usr/lib" \
-        "/usr/lib64" \
+        "/bin" \
+        "/sbin" \
+        "/lib" \
+        "/lib64" \
         "/boot";
     do
+        mp=$(readlink -f "$mp")
         mountpoint "$mp" >/dev/null 2>&1 || continue
         _dev="$(readlink -f "/dev/block/$(find_block_device "$mp")")"
         [[ "$_mp" == "/" ]] && root_dev="$_dev"
         push host_devs "$_dev"
     done
 
-    while read dev type rest; do
-        [[ -b $dev ]] || continue
-        [[ "$type" == "partition" ]] || continue
-        while read _d _m _t _o _r; do
-            [[ "$_d" == \#* ]] && continue
-            [[ $_d ]] || continue
-            [[ $_t != "swap" ]] || [[ $_m != "swap" ]] && continue
-            [[ "$_o" == *noauto* ]] && continue
-            [[ "$_d" == UUID\=* ]] && _d="/dev/disk/by-uuid/${_d#UUID=}"
-            [[ "$_d" == LABEL\=* ]] && _d="/dev/disk/by-label/$_d#LABEL=}"
-            [[ "$_d" -ef "$dev" ]] || continue
+    if [[ -f /proc/swaps ]] && [[ -f /etc/fstab ]]; then
+        while read dev type rest; do
+            [[ -b $dev ]] || continue
+            [[ "$type" == "partition" ]] || continue
 
-            while read _mapper _a _p _o; do
-                [[ $_mapper = \#* ]] && continue
-                [[ "$_d" -ef /dev/mapper/"$_mapper" ]] || continue
-                [[ "$_o" ]] || _o="$_p"
+            while read _d _m _t _o _r; do
+                [[ "$_d" == \#* ]] && continue
+                [[ $_d ]] || continue
+                [[ $_t != "swap" ]] || [[ $_m != "swap" ]] && continue
+                [[ "$_o" == *noauto* ]] && continue
+                [[ "$_d" == UUID\=* ]] && _d="/dev/disk/by-uuid/${_d#UUID=}"
+                [[ "$_d" == LABEL\=* ]] && _d="/dev/disk/by-label/$_d#LABEL=}"
+                [[ "$_d" -ef "$dev" ]] || continue
+
+                if [[ -f /etc/crypttab ]]; then
+                    while read _mapper _a _p _o; do
+                        [[ $_mapper = \#* ]] && continue
+                        [[ "$_d" -ef /dev/mapper/"$_mapper" ]] || continue
+                        [[ "$_o" ]] || _o="$_p"
                 # skip mkswap swap
-                [[ $_o == *swap* ]] && continue 2
-            done < /etc/crypttab
+                        [[ $_o == *swap* ]] && continue 2
+                    done < /etc/crypttab
+                fi
 
-            push host_devs "$(readlink -f "$dev")"
-            break
-        done < /etc/fstab
-    done < /proc/swaps
+                push host_devs "$(readlink -f "$dev")"
+                break
+            done < /etc/fstab
+        done < /proc/swaps
+    fi
 fi
 
-_get_fs_type() { (
+_get_fs_type() {
     [[ $1 ]] || return
     if [[ -b /dev/block/$1 ]] && ID_FS_TYPE=$(get_fs_env "/dev/block/$1"); then
-        printf "%s\n" "$(readlink -f "/dev/block/$1")" "$ID_FS_TYPE"
+        host_fs_types["$(readlink -f "/dev/block/$1")"]="$ID_FS_TYPE"
         return 1
     fi
     if [[ -b $1 ]] && ID_FS_TYPE=$(get_fs_env "$1"); then
-        printf "%s\n" "$(readlink -f "$1")" "$ID_FS_TYPE"
+        host_fs_types["$(readlink -f "$1")"]="$ID_FS_TYPE"
         return 1
     fi
     if fstype=$(find_dev_fstype "$1"); then
-        printf "%s\n" "$1" "$fstype"
+        host_fs_types["$1"]="$fstype"
         return 1
     fi
     return 1
-) }
+}
 
-for dev in "${host_devs[@]}"; do
-    while read key; do
-        read val
-        host_fs_types["$key"]="$val"
-    done < <(
-        _get_fs_type "$dev"
-        check_block_and_slaves_all _get_fs_type "$(get_maj_min "$dev")"
-    )
+for dev in ${host_devs[@]}; do
+    _get_fs_type "$dev"
+    check_block_and_slaves_all _get_fs_type "$(get_maj_min "$dev")"
 done
 
 [[ -d $udevdir ]] \
@@ -1167,11 +1175,6 @@ if [[ $kernel_only != yes ]]; then
     fi
 fi
 
-if (( maxloglvl >= 5 )); then
-    ddebug "Listing sizes of included files:"
-    du -c "$initdir" | sort -n | ddebug
-fi
-
 PRELINK_BIN="$(command -v prelink)"
 if [[ $UID = 0 ]] && [[ $PRELINK_BIN ]]; then
     if [[ $DRACUT_FIPS_MODE ]]; then
@@ -1258,6 +1261,7 @@ if [[ $early_microcode = yes ]]; then
     done
     (cd "$microcode_dir/d"; find . | cpio -o -H newc --quiet >../ucode.cpio)
 fi
+
 rm -f -- "$outfile"
 dinfo "*** Creating image file ***"
 if [[ $early_microcode = yes ]]; then
@@ -1272,7 +1276,8 @@ fi
 mv -- "$outfile.$$" "$outfile"
 dinfo "*** Creating image file done ***"
 
-dinfo "Wrote $outfile:"
-dinfo "$(ls -l "$outfile")"
+if (( maxloglvl >= 5 )); then
+    lsinitrd "$outfile"| ddebug
+fi
 
 exit 0

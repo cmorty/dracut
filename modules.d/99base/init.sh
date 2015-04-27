@@ -81,6 +81,20 @@ if ! ismounted /run; then
     rm -fr -- /newrun
 fi
 
+if command -v kmod >/dev/null 2>/dev/null; then
+    kmod static-nodes --format=tmpfiles 2>/dev/null | \
+        while read type file mode a a a majmin; do
+        case $type in
+            d)
+                mkdir -m $mode -p $file
+                ;;
+            c)
+                mknod -m $mode $file $type ${majmin%:*} ${majmin#*:}
+                ;;
+        esac
+    done
+fi
+
 trap "action_on_fail Signal caught!" 0
 
 [ -d /run/initramfs ] || mkdir -p -m 0755 /run/initramfs
@@ -278,8 +292,8 @@ if [ $UDEVVERSION -lt 168 ]; then
     udevadm control --stop-exec-queue
 
     HARD=""
-    while pidof systemd-udevd >/dev/null 2>&1; do
-        for pid in $(pidof systemd-udevd); do
+    while pidof udevd >/dev/null 2>&1; do
+        for pid in $(pidof udevd); do
             kill $HARD $pid >/dev/null 2>&1
         done
         HARD="-9"

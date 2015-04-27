@@ -5,6 +5,8 @@
 check() {
     [[ $mount_needs ]] && return 1
     if [[ -x $systemdutildir/systemd ]]; then
+        SYSTEMD_VERSION=$($systemdutildir/systemd --version | { read a b a; echo $b; })
+        (( $SYSTEMD_VERSION >= 198 )) && return 0
        return 255
     fi
 
@@ -17,12 +19,6 @@ depends() {
 
 install() {
     local _mods
-
-#    SYSTEMD_VERSION=$($systemdutildir/systemd --version | { read a b a; echo $b; })
-#    if (( $SYSTEMD_VERSION < 198 )); then
-#        dfatal "systemd version $SYSTEMD_VERSION is too low. Need at least version 198."
-#        exit 1
-#    fi
 
     if [[ "$prefix" == /run/* ]]; then
         dfatal "systemd does not work with a prefix, which contains \"/run\"!!"
@@ -69,6 +65,8 @@ install() {
         $systemdsystemunitdir/timers.target \
         $systemdsystemunitdir/paths.target \
         $systemdsystemunitdir/umount.target \
+        $systemdsystemunitdir/kmod-static-nodes.service \
+        $systemdsystemunitdir/systemd-tmpfiles-setup-dev.service \
         $systemdsystemunitdir/systemd-ask-password-console.path \
         $systemdsystemunitdir/systemd-udevd-control.socket \
         $systemdsystemunitdir/systemd-udevd-kernel.socket \
@@ -88,6 +86,7 @@ install() {
         $systemdsystemunitdir/systemd-journald.service \
         $systemdsystemunitdir/systemd-vconsole-setup.service \
         $systemdsystemunitdir/systemd-random-seed-load.service \
+        \
         $systemdsystemunitdir/sysinit.target.wants/systemd-modules-load.service \
         $systemdsystemunitdir/sysinit.target.wants/systemd-ask-password-console.path \
         $systemdsystemunitdir/sysinit.target.wants/systemd-journald.service \
@@ -96,6 +95,8 @@ install() {
         $systemdsystemunitdir/sockets.target.wants/systemd-journald.socket \
         $systemdsystemunitdir/sysinit.target.wants/systemd-udevd.service \
         $systemdsystemunitdir/sysinit.target.wants/systemd-udev-trigger.service \
+        $systemdsystemunitdir/sysinit.target.wants/kmod-static-nodes.service \
+        $systemdsystemunitdir/sysinit.target.wants/systemd-tmpfiles-setup-dev.service \
         \
         $systemdsystemunitdir/ctrl-alt-del.target \
         $systemdsystemunitdir/syslog.socket \
@@ -108,7 +109,7 @@ install() {
         $systemdsystemunitdir/slices.target \
         $systemdsystemunitdir/system.slice \
         \
-        journalctl systemctl echo swapoff systemd-cgls
+        journalctl systemctl echo swapoff systemd-cgls systemd-tmpfiles
 
     dracut_install -o \
         /usr/lib/modules-load.d/*.conf \

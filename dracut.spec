@@ -78,7 +78,7 @@ Provides:  dracut-kernel = %{version}-%{release}
 
 Obsoletes: dracut <= 029
 Obsoletes: dracut-norescue
-Provides:  dracut-horescue
+Provides:  dracut-norescue
 
 Requires: bash >= 4
 Requires: coreutils
@@ -95,6 +95,7 @@ Requires: kpartx
 %if 0%{?fedora} || 0%{?rhel} > 6
 Requires: util-linux >= 2.21
 Requires: systemd >= 199
+Requires: procps-ng
 Conflicts: grubby < 8.23
 %else
 Requires: udev > 166
@@ -269,9 +270,6 @@ echo 'hostonly="no"' > $RPM_BUILD_ROOT%{dracutlibdir}/dracut.conf.d/02-generic-i
 echo 'dracut_rescue_image="yes"' > $RPM_BUILD_ROOT%{dracutlibdir}/dracut.conf.d/02-rescue.conf
 %endif
 
-mkdir -p $RPM_BUILD_ROOT%{_sysconfdir}/logrotate.d
-install -m 0644 dracut.logrotate $RPM_BUILD_ROOT%{_sysconfdir}/logrotate.d/dracut_log
-
 # create compat symlink
 mkdir -p $RPM_BUILD_ROOT/sbin
 ln -s /usr/bin/dracut $RPM_BUILD_ROOT/sbin/dracut
@@ -320,6 +318,7 @@ rm -rf -- $RPM_BUILD_ROOT
 %else
 %{dracutlibdir}/modules.d/00bootchart
 %endif
+%{dracutlibdir}/modules.d/03modsign
 %{dracutlibdir}/modules.d/03rescue
 %{dracutlibdir}/modules.d/04watchdog
 %{dracutlibdir}/modules.d/05busybox
@@ -329,6 +328,7 @@ rm -rf -- $RPM_BUILD_ROOT
 %{dracutlibdir}/modules.d/50drm
 %{dracutlibdir}/modules.d/50plymouth
 %{dracutlibdir}/modules.d/80cms
+%{dracutlibdir}/modules.d/90bcache
 %{dracutlibdir}/modules.d/90btrfs
 %{dracutlibdir}/modules.d/90crypt
 %{dracutlibdir}/modules.d/90dm
@@ -367,7 +367,6 @@ rm -rf -- $RPM_BUILD_ROOT
 %{dracutlibdir}/modules.d/99fs-lib
 %{dracutlibdir}/modules.d/99img-lib
 %{dracutlibdir}/modules.d/99shutdown
-%config(noreplace) %{_sysconfdir}/logrotate.d/dracut_log
 %attr(0644,root,root) %ghost %config(missingok,noreplace) %{_localstatedir}/log/dracut.log
 %dir %{_sharedstatedir}/initramfs
 %if %{defined _unitdir}

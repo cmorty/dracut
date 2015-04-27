@@ -283,12 +283,11 @@ get_fs_env() {
                         printf "%s" "${line#ID_FS_TYPE=}";
                         exit 0;
                     fi
-            done; [[ $found ]] && exit 0; exit 1; }) ; then
+                done; [[ $found ]] && exit 0; exit 1; }) ; then
         if [[ $ID_FS_TYPE ]]; then
             printf "%s" "$ID_FS_TYPE"
             return 0
         fi
-        return 1
     fi
 
     # Fallback, if we don't have udev information
@@ -314,9 +313,9 @@ get_fs_env() {
 # $ get_maj_min /dev/sda2
 # 8:2
 get_maj_min() {
-    local _maj _min
-    read _maj _min < <(stat -L -c '%t %T' "$1" 2>/dev/null)
-    printf "%s" "$((0x$_maj)):$((0x$_min))"
+    local _maj _min _majmin
+    _majmin="$(stat -L -c '%t:%T' "$1" 2>/dev/null)"
+    printf "%s" "$((0x${_majmin%:*})):$((0x${_majmin#*:}))"
 }
 
 # find_block_device <mountpoint>
@@ -334,11 +333,35 @@ find_block_device() {
     _find_mpt="$1"
     if [[ $use_fstab != yes ]]; then
         [[ -d $_find_mpt/. ]]
-        while read _majmin _dev; do
-            if [[ -b $_dev ]]; then
-                if ! [[ $_majmin ]] || [[ $_majmin == 0:* ]]; then
-                    read _majmin < <(get_maj_min $_dev)
+        findmnt -e -v -n -o 'MAJ:MIN,SOURCE' --target "$_find_mpt" | { \
+            while read _majmin _dev; do
+                if [[ -b $_dev ]]; then
+                    if ! [[ $_majmin ]] || [[ $_majmin == 0:* ]]; then
+                        _majmin=$(get_maj_min $_dev)
+                    fi
+                    if [[ $_majmin ]]; then
+                        echo $_majmin
+                    else
+                        echo $_dev
+                    fi
+                    return 0
                 fi
+                if [[ $_dev = *:* ]]; then
+                    echo $_dev
+                    return 0
+                fi
+            done; return 1; } && return 0
+    fi
+    # fall back to /etc/fstab
+
+    findmnt -e --fstab -v -n -o 'MAJ:MIN,SOURCE' --target "$_find_mpt" | { \
+        while read _majmin _dev; do
+            if ! [[ $_dev ]]; then
+                _dev="$_majmin"
+                unset _majmin
+            fi
+            if [[ -b $_dev ]]; then
+                [[ $_majmin ]] || _majmin=$(get_maj_min $_dev)
                 if [[ $_majmin ]]; then
                     echo $_majmin
                 else
@@ -350,29 +373,7 @@ find_block_device() {
                 echo $_dev
                 return 0
             fi
-        done < <(findmnt -e -v -n -o 'MAJ:MIN,SOURCE' --target "$_find_mpt")
-    fi
-    # fall back to /etc/fstab
-
-    while read _majmin _dev; do
-        if ! [[ $_dev ]]; then
-            _dev="$_majmin"
-            unset _majmin
-        fi
-        if [[ -b $_dev ]]; then
-            [[ $_majmin ]] || read _majmin < <(get_maj_min $_dev)
-            if [[ $_majmin ]]; then
-                echo $_majmin
-            else
-                echo $_dev
-            fi
-            return 0
-        fi
-        if [[ $_dev = *:* ]]; then
-            echo $_dev
-            return 0
-        fi
-    done < <(findmnt -e --fstab -v -n -o 'MAJ:MIN,SOURCE' --target "$_find_mpt")
+        done; return 1; } && return 0
 
     return 1
 }
@@ -389,20 +390,22 @@ find_mp_fstype() {
     local _fs
 
     if [[ $use_fstab != yes ]]; then
+        findmnt -e -v -n -o 'FSTYPE' --target "$1" | { \
+            while read _fs; do
+                [[ $_fs ]] || continue
+                [[ $_fs = "autofs" ]] && continue
+                echo -n $_fs
+                return 0
+            done; return 1; } && return 0
+    fi
+
+    findmnt --fstab -e -v -n -o 'FSTYPE' --target "$1" | { \
         while read _fs; do
             [[ $_fs ]] || continue
             [[ $_fs = "autofs" ]] && continue
             echo -n $_fs
             return 0
-        done < <(findmnt -e -v -n -o 'FSTYPE' --target "$1")
-    fi
-
-    while read _fs; do
-        [[ $_fs ]] || continue
-        [[ $_fs = "autofs" ]] && continue
-        echo -n $_fs
-        return 0
-    done < <(findmnt --fstab -e -v -n -o 'FSTYPE' --target "$1")
+        done; return 1; } && return 0
 
     return 1
 }
@@ -421,20 +424,22 @@ find_dev_fstype() {
     [[ "$_find_dev" = /dev* ]] || _find_dev="/dev/block/$_find_dev"
 
     if [[ $use_fstab != yes ]]; then
+        findmnt -e -v -n -o 'FSTYPE' --source "$_find_dev" | { \
+            while read _fs; do
+                [[ $_fs ]] || continue
+                [[ $_fs = "autofs" ]] && continue
+                echo -n $_fs
+                return 0
+            done; return 1; } && return 0
+    fi
+
+    findmnt --fstab -e -v -n -o 'FSTYPE' --source "$_find_dev" | { \
         while read _fs; do
             [[ $_fs ]] || continue
             [[ $_fs = "autofs" ]] && continue
             echo -n $_fs
             return 0
-        done < <(findmnt -e -v -n -o 'FSTYPE' --source "$_find_dev")
-    fi
-
-    while read _fs; do
-        [[ $_fs ]] || continue
-        [[ $_fs = "autofs" ]] && continue
-        echo -n $_fs
-        return 0
-    done < <(findmnt --fstab -e -v -n -o 'FSTYPE' --source "$_find_dev")
+        done; return 1; } && return 0
 
     return 1
 
@@ -475,12 +480,12 @@ check_block_and_slaves() {
     "$1" $2 && return
     check_vol_slaves "$@" && return 0
     if [[ -f /sys/dev/block/$2/../dev ]]; then
-        check_block_and_slaves $1 $(cat "/sys/dev/block/$2/../dev") && return 0
+        check_block_and_slaves $1 $(<"/sys/dev/block/$2/../dev") && return 0
     fi
     [[ -d /sys/dev/block/$2/slaves ]] || return 1
     for _x in /sys/dev/block/$2/slaves/*/dev; do
         [[ -f $_x ]] || continue
-        check_block_and_slaves $1 $(cat "$_x") && return 0
+        check_block_and_slaves $1 $(<"$_x") && return 0
     done
     return 1
 }
@@ -489,16 +494,16 @@ check_block_and_slaves_all() {
     local _x _ret=1
     [[ -b /dev/block/$2 ]] || return 1 # Not a block device? So sorry.
     if "$1" $2; then
-          _ret=0
+        _ret=0
     fi
     check_vol_slaves "$@" && return 0
     if [[ -f /sys/dev/block/$2/../dev ]]; then
-        check_block_and_slaves_all $1 $(cat "/sys/dev/block/$2/../dev") && _ret=0
+        check_block_and_slaves_all $1 $(<"/sys/dev/block/$2/../dev") && _ret=0
     fi
     [[ -d /sys/dev/block/$2/slaves ]] || return 1
     for _x in /sys/dev/block/$2/slaves/*/dev; do
         [[ -f $_x ]] || continue
-        check_block_and_slaves_all $1 $(cat "$_x") && _ret=0
+        check_block_and_slaves_all $1 $(<"$_x") && _ret=0
     done
     return $_ret
 }
@@ -516,7 +521,7 @@ for_each_host_dev_and_slaves_all()
     for _dev in ${host_devs[@]}; do
         [[ -b "$_dev" ]] || continue
         if check_block_and_slaves_all $_func $(get_maj_min $_dev); then
-               _ret=0
+            _ret=0
         fi
     done
     return $_ret
@@ -1226,7 +1231,7 @@ module_installkernel() {
     else
         unset check depends install installkernel
         installkernel() { true; }
-       . $_moddir/module-setup.sh
+        . $_moddir/module-setup.sh
         installkernel
         _ret=$?
         unset check depends install installkernel
@@ -1255,7 +1260,6 @@ check_mount() {
     [[ $2 ]] || mods_checked_as_dep+=" $_mod "
 
     if [[ " $omit_dracutmodules " == *\ $_mod\ * ]]; then
-        dinfo "dracut module '$_mod' will not be installed, because it's in the list to be omitted!"
         return 1
     fi
 
@@ -1406,6 +1410,14 @@ install_kmod_with_fw() {
         fi
     fi
 
+    if [[ $silent_omit_drivers ]]; then
+        local _kmod=${1##*/}
+        _kmod=${_kmod%.ko}
+        _kmod=${_kmod/-/_}
+        [[ "$_kmod" =~ $silent_omit_drivers ]] && return 0
+        [[ "${1##*/lib/modules/$kernel/}" =~ $silent_omit_drivers ]] && return 0
+    fi
+
     inst_simple "$1" "/lib/modules/$kernel/${1##*/lib/modules/$kernel/}"
     ret=$?
     [[ $DRACUT_KERNEL_LAZY_HASHDIR ]] && \
@@ -1456,6 +1468,7 @@ for_each_kmod_dep() {
 
 dracut_kernel_post() {
     local _moddirname=${srcmods%%/lib/modules/*}
+    local _pid
 
     if [[ $DRACUT_KERNEL_LAZY_HASHDIR ]] && [[ -f "$DRACUT_KERNEL_LAZY_HASHDIR/lazylist" ]]; then
         xargs -r modprobe -a ${_moddirname+-d ${_moddirname}/} \
@@ -1479,6 +1492,8 @@ dracut_kernel_post() {
                 done < "$DRACUT_KERNEL_LAZY_HASHDIR/lazylist.dep"
             fi
         ) &
+        _pid=$(jobs -p | while read a ; do printf ":$a";done)
+        _pid=${_pid##*:}
 
         if [[ $DRACUT_INSTALL ]]; then
             xargs -r modinfo -k $kernel -F firmware < "$DRACUT_KERNEL_LAZY_HASHDIR/lazylist.dep" \
@@ -1498,7 +1513,7 @@ dracut_kernel_post() {
             done
         fi
 
-        wait
+        wait $_pid
     fi
 
     for _f in modules.builtin.bin modules.builtin; do
@@ -1522,7 +1537,7 @@ dracut_kernel_post() {
     [[ $DRACUT_KERNEL_LAZY_HASHDIR ]] && rm -fr -- "$DRACUT_KERNEL_LAZY_HASHDIR"
 }
 
-module_is_host_only() { (
+module_is_host_only() {
     local _mod=$1
     _mod=${_mod##*/}
     _mod=${_mod%.ko}
@@ -1541,7 +1556,6 @@ module_is_host_only() { (
     modinfo -F filename "$_mod" &>/dev/null || return 0
 
     return 1
-    )
 }
 
 find_kernel_modules_by_path () {
@@ -1663,7 +1677,7 @@ instmods() {
     # Capture all stderr from modprobe to _fderr. We could use {var}>...
     # redirections, but that would make dracut require bash4 at least.
     eval "( instmods_1 \"\$@\" ) ${_fderr}>&1" \
-    | while read line; do [[ "$line" =~ $_filter_not_found ]] || echo $line;done | derror
+        | while read line; do [[ "$line" =~ $_filter_not_found ]] || echo $line;done | derror
     _ret=$?
     return $_ret
 }
