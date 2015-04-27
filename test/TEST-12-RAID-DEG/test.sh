@@ -9,15 +9,15 @@ KVERSION=${KVERSION-$(uname -r)}
 
 client_run() {
     echo "CLIENT TEST START: $@"
-    cp --sparse=always $TESTDIR/disk2.img $TESTDIR/disk2.img.new
-    cp --sparse=always $TESTDIR/disk3.img $TESTDIR/disk3.img.new
+    cp --sparse=always --reflink=auto $TESTDIR/disk2.img $TESTDIR/disk2.img.new
+    cp --sparse=always --reflink=auto $TESTDIR/disk3.img $TESTDIR/disk3.img.new
 
     $testdir/run-qemu \
 	-hda $TESTDIR/root.ext2 -m 256M -nographic \
 	-hdc $TESTDIR/disk2.img.new \
 	-hdd $TESTDIR/disk3.img.new \
 	-net none -kernel /boot/vmlinuz-$KVERSION \
-	-append "$@ root=LABEL=root rw quiet rd.retry=3 rd.info console=ttyS0,115200n81 selinux=0 rd.debug  $DEBUGFAIL " \
+	-append "$* root=LABEL=root rw quiet rd.retry=3 rd.info console=ttyS0,115200n81 selinux=0 rd.debug  $DEBUGFAIL " \
 	-initrd $TESTDIR/initramfs.testing
     if ! grep -m 1 -q dracut-root-block-success $TESTDIR/root.ext2; then
 	echo "CLIENT TEST END: $@ [FAIL]"
@@ -58,7 +58,7 @@ test_setup() {
     kernel=$KVERSION
     # Create what will eventually be our root filesystem onto an overlay
     (
-	initdir=$TESTDIR/overlay/source
+	export initdir=$TESTDIR/overlay/source
 	. $basedir/dracut-functions.sh
 	dracut_install sh df free ls shutdown poweroff stty cat ps ln ip route \
 	    mount dmesg ifconfig dhclient mkdir cp ping dhclient
@@ -78,7 +78,7 @@ test_setup() {
 
     # second, install the files needed to make the root filesystem
     (
-	initdir=$TESTDIR/overlay
+	export initdir=$TESTDIR/overlay
 	. $basedir/dracut-functions.sh
 	dracut_install sfdisk mke2fs poweroff cp umount dd grep
 	inst_hook initqueue 01 ./create-root.sh
@@ -106,7 +106,7 @@ test_setup() {
     grep -m 1 -q dracut-root-block-created $TESTDIR/root.ext2 || return 1
     eval $(grep --binary-files=text -m 1 MD_UUID $TESTDIR/root.ext2)
     (
-	initdir=$TESTDIR/overlay
+	export initdir=$TESTDIR/overlay
 	. $basedir/dracut-functions.sh
 	dracut_install poweroff shutdown
 	inst_hook emergency 000 ./hard-off.sh
