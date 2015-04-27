@@ -234,7 +234,7 @@ while :; do
         strstr "$(udevadm info --query=env --path=${cdrom##/sys})" \
             ID_CDROM_MEDIA && continue
 
-        if [ -e "$cdrom"/events_poll_msecs -a -n -e "/tmp/.poll_${cdrom##*/}" ]; then
+        if [ -e "$cdrom"/events_poll_msecs -a ! -e "/tmp/.poll_${cdrom##*/}" ]; then
             msecs=$(while read a; do echo $a;done < "$cdrom"/events_poll_msecs)
             if [ "$msecs" = "-1" ]; then
                 echo 250 > "$cdrom"/events_poll_msecs
@@ -373,20 +373,21 @@ info "Switching root"
 
 wait_for_loginit
 
-export PATH="$OLD_PATH"
 
 if [ -d "$NEWROOT"/run ]; then
     mount --move /run "$NEWROOT"/run
 else
     if [ -e /run/initramfs ]; then
-        mkdir -m 0755 /dev/.initramfs
-        cp -axr /run/initramfs/* /dev/.initramfs >/dev/null 2>&1
+        cp -axr /run/initramfs /dev/.initramfs >/dev/null 2>&1
+        if [ -e /run/initramfs/live ]; then
+            mkdir -m 0755 /dev/.initramfs/live
+            mount --move /run/initramfs/live /dev/.initramfs/live
+        fi
     fi
-    if [ -e /run/mdadm ]; then
-        mkdir -m 0755 /dev/.mdadm
-        cp -axr /run/mdadm/* /dev/.mdadm >/dev/null 2>&1
-    fi
+    umount -l /run
 fi
+
+export PATH="$OLD_PATH"
 
 if [ -f /etc/capsdrop ]; then
     . /etc/capsdrop

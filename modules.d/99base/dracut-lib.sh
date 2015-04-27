@@ -98,7 +98,7 @@ getargbool() {
     _b=$(getarg "$@")
     [ $? -ne 0 -a -z "$_b" ] && _b=$_default
     if [ -n "$_b" ]; then
-        [ $_b -eq 0 ] && return 1
+        [ $_b = "0" ] && return 1
         [ $_b = "no" ] && return 1
     fi
     return 0
@@ -236,8 +236,8 @@ source_conf() {
 
 die() {
     {
-        echo "<1>dracut: FATAL: $@";
-        echo "<1>dracut: Refusing to continue";
+        echo "<24>dracut: FATAL: $@";
+        echo "<24>dracut: Refusing to continue";
     } > /dev/kmsg
 
     { 
@@ -260,14 +260,14 @@ check_quiet() {
 
 warn() {
     check_quiet
-    echo "<4>dracut Warning: $@" > /dev/kmsg
+    echo "<28>dracut Warning: $@" > /dev/kmsg
     [ "$DRACUT_QUIET" != "yes" ] && \
         echo "dracut Warning: $@" >&2
 }
 
 info() {
     check_quiet
-    echo "<6>dracut: $@" > /dev/kmsg
+    echo "<30>dracut: $@" > /dev/kmsg
     [ "$DRACUT_QUIET" != "yes" ] && \
         echo "dracut: $@" 
 }

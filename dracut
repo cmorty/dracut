@@ -187,7 +187,6 @@ push_arg() {
     fi
 }
 
-kernel="unset"
 verbosity_mod_l=0
 
 while (($# > 0)); do
@@ -223,7 +222,9 @@ while (($# > 0)); do
         -H|--hostonly) hostonly_l="yes" ;;
         --fstab)       use_fstab_l="yes" ;;
         -h|--help)     usage; exit 1 ;;
-        -i|--include)  push include_src "$2"; push include_target "$3"; shift 2;;
+        -i|--include)  push include_src "$2"
+                       push include_target "$3"
+                       shift 2;;
         --bzip2)       compress_l="bzip2";;
         --lzma)        compress_l="lzma";;
         --xz)          compress_l="xz";;
@@ -237,9 +238,9 @@ while (($# > 0)); do
                        ;;
         -*) printf "\nUnknown option: %s\n\n" "$1" >&2; usage; exit 1;;
         *) 
-            if ! [[ $outfile ]]; then
+            if ! [[ ${outfile+x} ]]; then
                 outfile=$1
-            elif [[ $kernel = "unset" ]]; then
+            elif ! [[ ${kernel+x} ]]; then
                 kernel=$1
             else
                 usage; exit 1;
@@ -248,7 +249,7 @@ while (($# > 0)); do
     esac
     shift
 done
-if ! [[ $kernel ]] || [[ $kernel = "unset" ]]; then
+if ! [[ $kernel ]]; then
     kernel=$(uname -r)
 fi
 [[ $outfile ]] || outfile="/boot/initramfs-$kernel.img"
@@ -349,7 +350,7 @@ stdloglvl=$((stdloglvl + verbosity_mod_l))
 [[ $mdadmconf_l ]] && mdadmconf=$mdadmconf_l
 [[ $lvmconf_l ]] && lvmconf=$lvmconf_l
 [[ $dracutbasedir ]] || dracutbasedir=/usr/share/dracut
-[[ $fw_dir ]] || fw_dir=/lib/firmware
+[[ $fw_dir ]] || fw_dir="/lib/firmware/updates /lib/firmware"
 [[ $do_strip ]] || do_strip=no
 [[ $compress_l ]] && compress=$compress_l
 [[ $show_modules_l ]] && show_modules=$show_modules_l
@@ -492,7 +493,7 @@ for moddir in "$dracutbasedir/modules.d"/[0-9][0-9]*; do
     fi
 done
 unset moddir
-dinfo "*** Including modules' done ***"
+dinfo "*** Including modules done ***"
 
 ## final stuff that has to happen
 
