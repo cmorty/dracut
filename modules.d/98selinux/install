@@ -1,2 +1,0 @@
-#!/bin/bash
-inst_hook pre-pivot 50 "$moddir/selinux-loadpolicy.sh"

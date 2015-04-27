@@ -4,7 +4,9 @@ TEST_DESCRIPTION="root filesystem on NBD"
 KVERSION=${KVERSION-$(uname -r)}
 
 # Uncomment this to debug failures
-#DEBUGFAIL="rdshell"
+#DEBUGFAIL="rd.shell"
+#SERIAL="udp:127.0.0.1:9999"
+SERIAL="null"
 
 run_server() {
     # Start server first
@@ -14,7 +16,7 @@ run_server() {
 	-m 256M -nographic \
 	-net nic,macaddr=52:54:00:12:34:56,model=e1000 \
 	-net socket,listen=127.0.0.1:12345 \
-	-serial udp:127.0.0.1:9999 \
+	-serial $SERIAL \
 	-kernel /boot/vmlinuz-$KVERSION \
 	-append "root=/dev/sda rw quiet console=ttyS0,115200n81 selinux=0" \
 	-initrd initramfs.server -pidfile server.pid -daemonize || return 1
@@ -50,7 +52,7 @@ client_test() {
 	-net nic,macaddr=$mac,model=e1000 \
 	-net socket,connect=127.0.0.1:12345 \
 	-kernel /boot/vmlinuz-$KVERSION \
-	-append "$cmdline $DEBUGFAIL rdinitdebug rdinfo rdnetdebug ro quiet console=ttyS0,115200n81 selinux=0" \
+	-append "$cmdline $DEBUGFAIL rd.debug rd.info  ro quiet console=ttyS0,115200n81 selinux=0" \
 	-initrd initramfs.testing
 
     if [[ $? -ne 0 ]] || ! grep -m 1 -q nbd-OK flag.img; then
@@ -263,7 +265,7 @@ make_server_root() {
 	dracut_install sh ls shutdown poweroff stty cat ps ln ip \
 	    /lib/terminfo/l/linux dmesg mkdir cp ping grep \
 	    sleep nbd-server chmod
-	which dhcpd >/dev/null 2>&1 && dracut_install dhcpd
+	type -P dhcpd >/dev/null && dracut_install dhcpd
 	[ -x /usr/sbin/dhcpd3 ] && inst /usr/sbin/dhcpd3 /usr/sbin/dhcpd
 	inst ./server-init /sbin/init
 	inst ./hosts /etc/hosts

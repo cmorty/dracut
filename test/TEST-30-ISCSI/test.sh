@@ -3,7 +3,9 @@ TEST_DESCRIPTION="root filesystem over iSCSI"
 
 KVERSION=${KVERSION-$(uname -r)}
 
-#DEBUGFAIL="rdshell"
+#DEBUGFAIL="rd.shell"
+#SERIAL="-serial udp:127.0.0.1:9999"
+SERIAL="null"
 
 run_server() {
     # Start server first
@@ -13,7 +15,7 @@ run_server() {
 	-hdc iscsidisk2.img -hdd iscsidisk3.img \
 	-net nic,macaddr=52:54:00:12:34:56,model=e1000 \
 	-net socket,listen=127.0.0.1:12345 \
-	-serial udp:127.0.0.1:9999 \
+	-serial $SERIAL \
 	-kernel /boot/vmlinuz-$KVERSION \
 	-append "root=/dev/sda rw quiet console=ttyS0,115200n81 selinux=0" \
 	-initrd initramfs.server -pidfile server.pid -daemonize || return 1
@@ -38,7 +40,7 @@ run_client() {
   	-net nic,macaddr=52:54:00:12:34:00,model=e1000 \
 	-net socket,connect=127.0.0.1:12345 \
   	-kernel /boot/vmlinuz-$KVERSION \
-	-append "root=LABEL=sysroot ip=192.168.50.101::192.168.50.1:255.255.255.0:iscsi-1:eth0:off netroot=iscsi:192.168.50.1::::iqn.2009-06.dracut:target1 netroot=iscsi:192.168.50.1::::iqn.2009-06.dracut:target2 rw quiet rd_retry=5 rdinitdebug rdinfo rdnetdebug console=ttyS0,115200n81 selinux=0 $DEBUGFAIL" \
+	-append "root=LABEL=sysroot ip=192.168.50.101::192.168.50.1:255.255.255.0:iscsi-1:eth0:off netroot=iscsi:192.168.50.1::::iqn.2009-06.dracut:target1 netroot=iscsi:192.168.50.1::::iqn.2009-06.dracut:target2 rw quiet rd.retry=5 rd.debug rd.info  console=ttyS0,115200n81 selinux=0 $DEBUGFAIL" \
   	-initrd initramfs.testing
     grep -m 1 -q iscsi-OK client.img || return 1
 
@@ -47,7 +49,7 @@ run_client() {
   	-net nic,macaddr=52:54:00:12:34:00,model=e1000 \
 	-net socket,connect=127.0.0.1:12345 \
   	-kernel /boot/vmlinuz-$KVERSION \
-	-append "root=dhcp rw quiet rd_retry=5 rdinitdebug rdinfo rdnetdebug console=ttyS0,115200n81 selinux=0 $DEBUGFAIL" \
+	-append "root=dhcp rw quiet rd.retry=5 rd.debug rd.info  console=ttyS0,115200n81 selinux=0 $DEBUGFAIL" \
   	-initrd initramfs.testing
     grep -m 1 -q iscsi-OK client.img || return 1
 
@@ -161,7 +163,7 @@ test_setup() {
 	instmods iscsi_tcp crc32c ipv6
         inst ./targets /etc/iscsi/targets
 	[ -f /etc/netconfig ] && dracut_install /etc/netconfig 
-	which dhcpd >/dev/null 2>&1 && dracut_install dhcpd
+	type -P dhcpd >/dev/null && dracut_install dhcpd
 	[ -x /usr/sbin/dhcpd3 ] && inst /usr/sbin/dhcpd3 /usr/sbin/dhcpd
 	inst ./server-init /sbin/init
 	inst ./hosts /etc/hosts

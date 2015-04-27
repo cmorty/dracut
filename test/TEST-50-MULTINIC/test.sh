@@ -4,7 +4,9 @@ TEST_DESCRIPTION="root filesystem on NFS with multiple nics"
 KVERSION=${KVERSION-$(uname -r)}
 
 # Uncomment this to debug failures
-#DEBUGFAIL="rdshell"
+#DEBUGFAIL="rd.shell"
+#SERIAL="udp:127.0.0.1:9999"
+SERIAL="null"
 
 run_server() {
     # Start server first
@@ -13,9 +15,9 @@ run_server() {
     $testdir/run-qemu -hda server.ext2 -m 256M -nographic \
 	-net nic,macaddr=52:54:00:12:34:56,model=e1000 \
 	-net socket,listen=127.0.0.1:12345 \
-	-serial udp:127.0.0.1:9999 \
+	-serial $SERIAL \
 	-kernel /boot/vmlinuz-$KVERSION \
-	-append "selinux=0 root=/dev/sda rdinitdebug rdinfo rdnetdebug rw quiet console=ttyS0,115200n81" \
+	-append "selinux=0 root=/dev/sda rd.debug rd.info  rw quiet console=ttyS0,115200n81" \
 	-initrd initramfs.server -pidfile server.pid -daemonize || return 1
     sudo chmod 644 server.pid || return 1
 
@@ -47,11 +49,9 @@ client_test() {
   	-net nic,macaddr=52:54:00:12:34:$mac2,model=e1000 \
   	-net nic,macaddr=52:54:00:12:34:$mac3,model=e1000 \
 	-net socket,connect=127.0.0.1:12345 \
-        -drive if=ide,index=1,media=disk \
-        -drive if=ide,index=2,media=disk \
-        -drive if=ide,index=3,media=disk \
+        -hdc /dev/null \
   	-kernel /boot/vmlinuz-$KVERSION \
-  	-append "$cmdline $DEBUGFAIL rd_retry=5 rdinitdebug rdinfo rdnetdebug ro quiet console=ttyS0,115200n81 selinux=0 rdcopystate" \
+  	-append "$cmdline $DEBUGFAIL rd.retry=5 rd.debug rd.info  ro quiet console=ttyS0,115200n81 selinux=0 rd.copystate" \
   	-initrd initramfs.testing
 
     if [[ $? -ne 0 ]] || ! grep -m 1 -q OK client.img; then
@@ -135,10 +135,10 @@ test_setup() {
  	    /lib/terminfo/l/linux dmesg mkdir cp ping exportfs \
  	    modprobe rpc.nfsd rpc.mountd showmount tcpdump \
  	    /etc/services sleep mount chmod
- 	which portmap >/dev/null 2>&1 && dracut_install portmap
- 	which rpcbind >/dev/null 2>&1 && dracut_install rpcbind
+ 	type -P portmap >/dev/null && dracut_install portmap
+ 	type -P rpcbind >/dev/null && dracut_install rpcbind
  	[ -f /etc/netconfig ] && dracut_install /etc/netconfig 
- 	which dhcpd >/dev/null 2>&1 && dracut_install dhcpd
+ 	type -P dhcpd >/dev/null && dracut_install dhcpd
  	[ -x /usr/sbin/dhcpd3 ] && inst /usr/sbin/dhcpd3 /usr/sbin/dhcpd
  	instmods nfsd sunrpc ipv6
  	inst ./server-init /sbin/init
@@ -147,7 +147,7 @@ test_setup() {
  	inst ./dhcpd.conf /etc/dhcpd.conf
  	dracut_install /etc/nsswitch.conf /etc/rpc /etc/protocols
  	dracut_install rpc.idmapd /etc/idmapd.conf
- 	if ldd $(which rpc.idmapd) |grep -q lib64; then
+ 	if ldd $(type -P rpc.idmapd) |grep -q lib64; then
  	    LIBDIR="/lib64"
  	else
  	    LIBDIR="/lib"

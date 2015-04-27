@@ -4,19 +4,19 @@ TEST_DESCRIPTION="root filesystem on LVM PV"
 KVERSION=${KVERSION-$(uname -r)}
 
 # Uncomment this to debug failures
-#DEBUGFAIL="rdshell"
+#DEBUGFAIL="rd.shell"
 
 test_run() {
     $testdir/run-qemu -hda root.ext2 -m 256M -nographic \
 	-net none -kernel /boot/vmlinuz-$KVERSION \
-	-append "root=/dev/dracut/root rw quiet rd_retry=3 rdinfo console=ttyS0,115200n81 selinux=0 rdinitdebug rdnetdebug $DEBUGFAIL" \
+	-append "root=/dev/dracut/root rw quiet rd.retry=3 rd.info console=ttyS0,115200n81 selinux=0 rd.debug  $DEBUGFAIL" \
 	-initrd initramfs.testing
     grep -m 1 -q dracut-root-block-success root.ext2 || return 1
 }
 
 test_setup() {
     # Create the blank file to use as a root filesystem
-    dd if=/dev/zero of=root.ext2 bs=1M count=20
+    dd if=/dev/zero of=root.ext2 bs=1M count=40
 
     kernel=$KVERSION
     # Create what will eventually be our root filesystem onto an overlay
