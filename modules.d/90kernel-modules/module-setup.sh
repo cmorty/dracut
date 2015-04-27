@@ -31,7 +31,7 @@ installkernel() {
             eval "( ( rotor ) ${_side2}>&1 | bmf1 ) ${_merge}>&1"
             [[ $debug ]] && set -x
         }
-        hostonly='' instmods sr_mod sd_mod scsi_dh scsi_dh_rdac scsi_dh_emc
+        hostonly='' instmods sr_mod sd_mod scsi_dh scsi_dh_rdac scsi_dh_emc ata_piix
         hostonly='' instmods pcmcia firewire-ohci
         hostonly='' instmods usb_storage sdhci sdhci-pci
 
@@ -46,9 +46,6 @@ installkernel() {
         if ! [[ $hostonly ]]; then
             if [[ -z $filesystems ]]; then
                 instmods '=fs'
-                # hardcoded list of exceptions
-                # to save a lot of space
-                rm -fr ${initdir}/lib/modules/*/kernel/fs/ocfs2
             fi
         else
             inst_fs() {
@@ -75,7 +72,6 @@ install() {
         inst_simple "$i"
     done
     inst_hook cmdline 01 "$moddir/parse-kernel.sh"
-    inst_hook cleanup 20 "$moddir/kernel-cleanup.sh"
     inst_simple "$moddir/insmodpost.sh" /sbin/insmodpost.sh
 
     for _f in modules.builtin.bin modules.builtin; do

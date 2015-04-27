@@ -5,11 +5,17 @@ KVERSION=${KVERSION-$(uname -r)}
 
 # Uncomment this to debug failures
 #DEBUGFAIL="rd.shell"
+#DEBUGFAIL="rd.shell rd.break=pre-mount udev.log-priority=debug"
 
 client_run() {
     echo "CLIENT TEST START: $@"
+    cp --sparse=always $TESTDIR/disk2.img $TESTDIR/disk2.img.new
+    cp --sparse=always $TESTDIR/disk3.img $TESTDIR/disk3.img.new
+
     $testdir/run-qemu \
 	-hda $TESTDIR/root.ext2 -m 256M -nographic \
+	-hdc $TESTDIR/disk2.img.new \
+	-hdd $TESTDIR/disk3.img.new \
 	-net none -kernel /boot/vmlinuz-$KVERSION \
 	-append "$@ root=LABEL=root rw quiet rd.retry=3 rd.info console=ttyS0,115200n81 selinux=0 rd.debug  $DEBUGFAIL " \
 	-initrd $TESTDIR/initramfs.testing
@@ -29,24 +35,15 @@ test_run() {
 
     client_run || return 1
 
-#    client_run rd.md.conf=0 || return 1
+    client_run rd.md.uuid=$MD_UUID rd.md.conf=0 || return 1
+
+    client_run rd.md.uuid=failme rd.md.conf=0 failme && return 1
 
     client_run rd.lvm=0 failme && return 1
-
     client_run rd.lvm.vg=failme failme && return 1
-
     client_run rd.lvm.vg=dracut || return 1
-
-#    client_run rd.md.uuid=$MD_UUID rd.md.conf=0 || return 1
-
-    client_run rd.lvm.vg=dummy1 rd.lvm.vg=dracut rd.lvm.vg=dummy2 rd.lvm.conf=0 failme && return 1
-
-#    client_run rd.md.uuid=failme rd.md.conf=0 failme && return 1
-
-    client_run rd.md=0 failme && return 1
-
-#    client_run rd.md.uuid=dummy1 rd.md.uuid=$MD_UUID rd.md.uuid=dummy2 rd.md.conf=0 failme && return 1
-
+    client_run rd.lvm.lv=dracut/failme failme && return 1
+    client_run rd.lvm.lv=dracut/root || return 1
     return 0
 }
 
@@ -54,6 +51,9 @@ test_setup() {
     # Create the blank file to use as a root filesystem
     rm -f $TESTDIR/root.ext2
     dd if=/dev/null of=$TESTDIR/root.ext2 bs=1M seek=40
+    dd if=/dev/null of=$TESTDIR/disk1.img bs=1M seek=20
+    dd if=/dev/null of=$TESTDIR/disk2.img bs=1M seek=20
+    dd if=/dev/null of=$TESTDIR/disk3.img bs=1M seek=20
 
     kernel=$KVERSION
     # Create what will eventually be our root filesystem onto an overlay
@@ -61,7 +61,11 @@ test_setup() {
 	initdir=$TESTDIR/overlay/source
 	. $basedir/dracut-functions
 	dracut_install sh df free ls shutdown poweroff stty cat ps ln ip route \
-	    /lib/terminfo/l/linux mount dmesg ifconfig dhclient mkdir cp ping dhclient
+	    mount dmesg ifconfig dhclient mkdir cp ping dhclient
+        for _terminfodir in /lib/terminfo /etc/terminfo /usr/share/terminfo; do
+	    [ -f ${_terminfodir}/l/linux ] && break
+	done
+	dracut_install -o ${_terminfodir}/l/linux
 	inst "$basedir/modules.d/40network/dhclient-script" "/sbin/dhclient-script"
 	inst "$basedir/modules.d/40network/ifup" "/sbin/ifup"
 	dracut_install grep
@@ -92,6 +96,9 @@ test_setup() {
     # Invoke KVM and/or QEMU to actually create the target filesystem.
     $testdir/run-qemu \
 	-hda $TESTDIR/root.ext2 \
+	-hdb $TESTDIR/disk1.img \
+	-hdc $TESTDIR/disk2.img \
+	-hdd $TESTDIR/disk3.img \
 	-m 256M -nographic -net none \
 	-kernel "/boot/vmlinuz-$kernel" \
 	-append "root=/dev/dracut/root rw rootfstype=ext2 quiet console=ttyS0,115200n81 selinux=0" \

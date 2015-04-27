@@ -6,7 +6,7 @@ TEST_DESCRIPTION="root filesystem on NBD"
 KVERSION=${KVERSION-$(uname -r)}
 
 # Uncomment this to debug failures
-#DEBUGFAIL="rd.shell rd.retry=10"
+#DEBUGFAIL="rd.shell rd.retry=10 rd.break"
 #SERIAL="udp:127.0.0.1:9999"
 SERIAL="null"
 
@@ -59,7 +59,7 @@ client_test() {
 	-net nic,macaddr=$mac,model=e1000 \
 	-net socket,connect=127.0.0.1:12340 \
 	-kernel /boot/vmlinuz-$KVERSION \
-	-append "$cmdline $DEBUGFAIL rd.debug rd.info  ro quiet console=ttyS0,115200n81 selinux=0" \
+	-append "$cmdline $DEBUGFAIL rd.debug rd.info rd.retry=10 ro quiet console=ttyS0,115200n81 selinux=0" \
 	-initrd $TESTDIR/initramfs.testing
 
     if [[ $? -ne 0 ]] || ! grep -m 1 -q nbd-OK $TESTDIR/flag.img; then
@@ -191,12 +191,19 @@ make_encrypted_root() {
     # Create what will eventually be our root filesystem onto an overlay
     (
 	initdir=$TESTDIR/overlay/source
+        mkdir -p "$initdir"
+	(cd "$initdir"; mkdir -p dev sys proc etc var/run tmp )
 	. $basedir/dracut-functions
 	dracut_install sh df free ls shutdown poweroff stty cat ps ln ip \
-	    /lib/terminfo/l/linux mount dmesg mkdir cp ping
+	    mount dmesg mkdir cp ping
+        for _terminfodir in /lib/terminfo /etc/terminfo /usr/share/terminfo; do
+	    [ -f ${_terminfodir}/l/linux ] && break
+	done
+	dracut_install -o ${_terminfodir}/l/linux
 	inst ./client-init /sbin/init
 	find_binary plymouth >/dev/null && dracut_install plymouth
-	(cd "$initdir"; mkdir -p dev sys proc etc var/run tmp )
+	cp -a /etc/ld.so.conf* $initdir/etc
+	sudo ldconfig -r "$initdir"
     )
 
     # second, install the files needed to make the root filesystem
@@ -239,20 +246,22 @@ make_client_root() {
     (
 	initdir=$TESTDIR/mnt
 	. $basedir/dracut-functions
+        mkdir -p "$initdir"
+	(cd "$initdir"; mkdir -p dev sys proc etc var/run tmp )
 	dracut_install sh ls shutdown poweroff stty cat ps ln ip \
-	    /lib/terminfo/l/linux dmesg mkdir cp ping
+	    dmesg mkdir cp ping
+        for _terminfodir in /lib/terminfo /etc/terminfo /usr/share/terminfo; do
+	    [ -f ${_terminfodir}/l/linux ] && break
+	done
+	dracut_install -o ${_terminfodir}/l/linux
 	inst ./client-init /sbin/init
-	(
-	    cd "$initdir";
-	    mkdir -p dev sys proc etc var/run tmp
-	)
 	inst /etc/nsswitch.conf /etc/nsswitch.conf
 	inst /etc/passwd /etc/passwd
 	inst /etc/group /etc/group
-	for i in /lib*/libnss_files**;do
-	    inst_library $i
+	for i in /usr/lib*/libnss_files* /lib*/libnss_files*;do
+            [ -e "$i" ] || continue
+	    inst $i
 	done
-
 	cp -a /etc/ld.so.conf* $initdir/etc
 	sudo ldconfig -r "$initdir"
     )
@@ -271,23 +280,29 @@ make_server_root() {
     (
 	initdir=$TESTDIR/mnt
 	. $basedir/dracut-functions
+        mkdir -p "$initdir"
+	(
+	    cd "$initdir";
+	    mkdir -p dev sys proc etc var/run var/lib/dhcpd tmp
+	)
 	dracut_install sh ls shutdown poweroff stty cat ps ln ip \
-	    /lib/terminfo/l/linux dmesg mkdir cp ping grep \
+	    dmesg mkdir cp ping grep \
 	    sleep nbd-server chmod
+        for _terminfodir in /lib/terminfo /etc/terminfo /usr/share/terminfo; do
+	    [ -f ${_terminfodir}/l/linux ] && break
+	done
+	dracut_install -o ${_terminfodir}/l/linux
 	type -P dhcpd >/dev/null && dracut_install dhcpd
 	[ -x /usr/sbin/dhcpd3 ] && inst /usr/sbin/dhcpd3 /usr/sbin/dhcpd
 	inst ./server-init /sbin/init
 	inst ./hosts /etc/hosts
 	inst ./dhcpd.conf /etc/dhcpd.conf
-	(
-	    cd "$initdir";
-	    mkdir -p dev sys proc etc var/run var/lib/dhcpd tmp
-	)
 	inst /etc/nsswitch.conf /etc/nsswitch.conf
 	inst /etc/passwd /etc/passwd
 	inst /etc/group /etc/group
-	for i in /lib*/libnss_files**;do
-	    inst_library $i
+	for i in /usr/lib*/libnss_files* /lib*/libnss_files*;do
+            [ -e "$i" ] || continue
+	    inst $i
 	done
 
 	cp -a /etc/ld.so.conf* $initdir/etc
