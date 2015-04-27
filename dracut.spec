@@ -76,6 +76,7 @@ Requires: hardlink
 Requires: gzip xz
 Requires: module-init-tools >= 3.7-9
 Requires: sed
+Requires: file
 Requires: udev > 166
 %if 0%{?fedora} || 0%{?rhel} > 6
 Requires: util-linux >= 2.21
@@ -177,7 +178,7 @@ make install DESTDIR=$RPM_BUILD_ROOT \
 %endif
      sysconfdir=/etc mandir=%{_mandir}
 
-echo %{name}-%{version}-%{release} > $RPM_BUILD_ROOT/%{dracutlibdir}/modules.d/10rpmversion/dracut-version
+echo "DRACUT_VERSION=%{version}-%{release}" > $RPM_BUILD_ROOT/%{dracutlibdir}/dracut-version.sh
 
 %if 0%{?fedora} == 0 && 0%{?rhel} == 0
 rm -fr $RPM_BUILD_ROOT/%{dracutlibdir}/modules.d/01fips
@@ -186,6 +187,14 @@ rm -fr $RPM_BUILD_ROOT/%{dracutlibdir}/modules.d/02fips-aesni
 
 # remove gentoo specific modules
 rm -fr $RPM_BUILD_ROOT/%{dracutlibdir}/modules.d/50gensplash
+
+%if %{defined _unitdir}
+# with systemd IMA and selinux modules do not make sense
+rm -fr $RPM_BUILD_ROOT/%{dracutlibdir}/modules.d/96securityfs
+rm -fr $RPM_BUILD_ROOT/%{dracutlibdir}/modules.d/97masterkey
+rm -fr $RPM_BUILD_ROOT/%{dracutlibdir}/modules.d/98integrity
+rm -fr $RPM_BUILD_ROOT/%{dracutlibdir}/modules.d/98selinux
+%endif
 
 mkdir -p $RPM_BUILD_ROOT/boot/dracut
 mkdir -p $RPM_BUILD_ROOT/var/lib/dracut/overlay
@@ -231,6 +240,7 @@ rm -rf $RPM_BUILD_ROOT
 %dir %{dracutlibdir}/modules.d
 %{dracutlibdir}/dracut-functions.sh
 %{dracutlibdir}/dracut-functions
+%{dracutlibdir}/dracut-version.sh
 %{dracutlibdir}/dracut-logger.sh
 %{dracutlibdir}/dracut-initramfs-restore
 %config(noreplace) /etc/dracut.conf
@@ -246,7 +256,6 @@ rm -rf $RPM_BUILD_ROOT
 %{dracutlibdir}/modules.d/00dash
 %{dracutlibdir}/modules.d/05busybox
 %{dracutlibdir}/modules.d/10i18n
-%{dracutlibdir}/modules.d/10rpmversion
 %{dracutlibdir}/modules.d/30convertfs
 %{dracutlibdir}/modules.d/45url-lib
 %{dracutlibdir}/modules.d/50plymouth
@@ -270,14 +279,18 @@ rm -rf $RPM_BUILD_ROOT
 %{dracutlibdir}/modules.d/95zfcp
 %{dracutlibdir}/modules.d/95terminfo
 %{dracutlibdir}/modules.d/95udev-rules
+%{dracutlibdir}/modules.d/95virtfs
+%if %{undefined _unitdir}
 %{dracutlibdir}/modules.d/96securityfs
-%{dracutlibdir}/modules.d/97biosdevname
 %{dracutlibdir}/modules.d/97masterkey
-%{dracutlibdir}/modules.d/98ecryptfs
-%{dracutlibdir}/modules.d/98integrity
-%{dracutlibdir}/modules.d/98pollcdrom
 %{dracutlibdir}/modules.d/98selinux
+%{dracutlibdir}/modules.d/98integrity
+%endif
+%{dracutlibdir}/modules.d/97biosdevname
+%{dracutlibdir}/modules.d/98ecryptfs
+%{dracutlibdir}/modules.d/98pollcdrom
 %{dracutlibdir}/modules.d/98syslog
+%{dracutlibdir}/modules.d/98systemd
 %{dracutlibdir}/modules.d/98usrmount
 %{dracutlibdir}/modules.d/99base
 %{dracutlibdir}/modules.d/99fs-lib
@@ -288,6 +301,7 @@ rm -rf $RPM_BUILD_ROOT
 %dir %{_sharedstatedir}/initramfs
 %if %{defined _unitdir}
 %{_unitdir}/*.service
+%{_unitdir}/*.target
 %{_unitdir}/*/*.service
 %endif
 

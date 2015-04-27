@@ -31,18 +31,27 @@ fi
 # bridge this interface?
 if [ -e /tmp/bridge.info ]; then
     . /tmp/bridge.info
-    if [ "$netif" = "$ethname" ]; then
+    for ethname in $ethnames ; do
+        if [ "$netif" = "$ethname" ]; then
+            if [ "$netif" = "$bondname" ] && [ -n "$DO_BOND_SETUP" ] ; then
+                : # We need to really setup bond (recursive call)
+            else
+                netif="$bridgename"
+            fi
+        fi
+    done
+fi
+
+if [ -e /tmp/vlan.info ]; then
+    . /tmp/vlan.info
+    if [ "$netif" = "$phydevice" ]; then
         if [ "$netif" = "$bondname" ] && [ -n "$DO_BOND_SETUP" ] ; then
             : # We need to really setup bond (recursive call)
         else
-            netif="$bridgename"
+            netif="$vlanname"
         fi
     fi
 fi
-
-# bail immediately if the interface is already up
-# or we don't need the network
-[ -f "/tmp/net.$netif.up" ] && exit 0
 
 # disable manual ifup while netroot is set for simplifying our logic
 # in netroot case we prefer netroot to bringup $netif automaticlly
@@ -72,13 +81,11 @@ load_ipv6() {
 
 do_ipv6auto() {
     load_ipv6
-    {
-        echo 0 > /proc/sys/net/ipv6/conf/$netif/forwarding
-        echo 1 > /proc/sys/net/ipv6/conf/$netif/accept_ra
-        echo 1 > /proc/sys/net/ipv6/conf/$netif/accept_redirects
-        echo ip link set $netif up
-        echo wait_for_if_up $netif
-    } > /tmp/net.$netif.up
+    echo 0 > /proc/sys/net/ipv6/conf/$netif/forwarding
+    echo 1 > /proc/sys/net/ipv6/conf/$netif/accept_ra
+    echo 1 > /proc/sys/net/ipv6/conf/$netif/accept_redirects
+    ip link set $netif up
+    wait_for_if_up $netif
 
     [ -n "$hostname" ] && echo "echo $hostname > /proc/sys/kernel/hostname" > /tmp/net.$netif.hostname
 
@@ -88,30 +95,20 @@ do_ipv6auto() {
             echo nameserver $s
         done
     fi >> /tmp/net.$netif.resolv.conf
-
-
-    echo online > /sys/class/net/$netif/uevent
-    if [ -n "$manualup" ]; then
-        /sbin/netroot $netif -m
-    else
-        initqueue --onetime --name netroot-$netif netroot $netif
-    fi
 }
 
 # Handle static ip configuration
 do_static() {
     strstr $ip '*:*:*' && load_ipv6
 
-    {
-        echo ip link set $netif up
-        echo wait_for_if_up $netif
-        [ -n "$macaddr" ] && echo ip link set address $macaddr
-        [ -n "$mtu" ] && echo ip link set mtu $mtu
-        # do not flush addr for ipv6
-        strstr $ip '*:*:*' || \
-            echo ip addr flush dev $netif
-        echo ip addr add $ip/$mask brd + dev $netif
-    } > /tmp/net.$netif.up
+    ip link set $netif up
+    wait_for_if_up $netif
+    [ -n "$macaddr" ] && ip link set address $macaddr
+    [ -n "$mtu" ] && ip link set mtu $mtu
+    # do not flush addr for ipv6
+    strstr $ip '*:*:*' || \
+        ip addr flush dev $netif
+    ip addr add $ip/$mask brd + dev $netif
 
     [ -n "$gw" ] && echo ip route add default via $gw dev $netif > /tmp/net.$netif.gw
     [ -n "$hostname" ] && echo "echo $hostname > /proc/sys/kernel/hostname" > /tmp/net.$netif.hostname
@@ -122,20 +119,12 @@ do_static() {
             echo nameserver $s
         done
     fi >> /tmp/net.$netif.resolv.conf
-
-    echo online > /sys/class/net/$netif/uevent
-    if [ -n "$manualup" ]; then
-        /sbin/netroot $netif -m
-    else
-        initqueue --onetime --name netroot-$netif netroot $netif
-    fi
 }
 
 # loopback is always handled the same way
 if [ "$netif" = "lo" ] ; then
     ip link set lo up
     ip addr add 127.0.0.1/8 dev lo
-    >/tmp/net.$netif.up
     exit 0
 fi
 
@@ -169,7 +158,7 @@ if [ -e /tmp/bond.info ]; then
 
         for slave in $bondslaves ; do
             ip link set $slave down
-            ifenslave $bondname $slave
+            echo "+$slave" > /sys/class/net/$bondname/bonding/slaves
             ip link set $slave up
             wait_for_if_up $slave
         done
@@ -188,18 +177,40 @@ fi
 
 # XXX need error handling like dhclient-script
 
+if [ -e /tmp/bridge.info ]; then
+    . /tmp/bridge.info
 # start bridge if necessary
-if [ "$netif" = "$bridgename" ] && [ ! -e /tmp/net.$bridgename.up ]; then
-    if [ "$ethname" = "$bondname" ] ; then
-        DO_BOND_SETUP=yes ifup $bondname
-    else
-        ip link set $ethname up
+    if [ "$netif" = "$bridgename" ] && [ ! -e /tmp/net.$bridgename.up ]; then
+        brctl addbr $bridgename
+        brctl setfd $bridgename 0
+        for ethname in $ethnames ; do
+            if [ "$ethname" = "$bondname" ] ; then
+                DO_BOND_SETUP=yes ifup $bondname
+            else
+                ip link set $ethname up
+            fi
+            wait_for_if_up $ethname
+            brctl addif $bridgename $ethname
+        done
     fi
-    wait_for_if_up $ethname
-    # Create bridge and add eth to bridge
-    brctl addbr $bridgename
-    brctl setfd $bridgename 0
-    brctl addif $bridgename $ethname
+fi
+
+get_vid() {
+    case "$1" in
+    vlan*)
+        return ${1#vlan}
+        ;;
+    *.*)
+        return ${1##*.}
+        ;;
+    esac
+}
+
+if [ "$netif" = "$vlanname" ] && [ ! -e /tmp/net.$vlanname.up ]; then
+    modprobe 8021q
+    ip link set "$phydevice" up
+    wait_for_if_up "$phydevice"
+    ip link add dev "$vlanname" link "$phydevice" type vlan id "$(get_vid $vlanname; echo $?)"
 fi
 
 # No ip lines default to dhcp
@@ -238,6 +249,21 @@ for p in $(getargs ip=); do
         *)
             do_static ;;
     esac
+
+    case $autoconf in
+        dhcp|on|any|dhcp6)
+            ;;
+        *)
+            if [ $? -eq 0 ]; then
+                setup_net $netif
+                source_hook initqueue/online $netif
+                if [ -z "$manualup" ]; then
+                    /sbin/netroot $netif
+                fi
+            fi
+            ;;
+    esac
+
     break
 done
 exit 0

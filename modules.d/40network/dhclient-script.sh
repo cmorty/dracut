@@ -22,15 +22,15 @@ setup_interface() {
     # disallow MTUs from 576 and below by default, so that broken
     # MTUs are ignored, but higher stuff is allowed (1492, 1500, etc).
     if [ -n "$mtu" ] && [ $mtu -gt 576 ] ; then
-        echo "if ! ip link set $netif mtu $mtu ; then"
-        echo "ip link set $netif down"
-        echo "ip link set $netif mtu $mtu"
-        echo "ip link set $netif up"
-        echo wait_for_if_up $netif
-        echo "fi"
-    fi > /tmp/net.$netif.up
+        if ! ip link set $netif mtu $mtu ; then
+            ip link set $netif down
+            ip link set $netif mtu $mtu
+            ip link set $netif up
+            wait_for_if_up $netif
+        fi
+    fi
 
-    echo ip addr add $ip${mask:+/$mask} ${bcast:+broadcast $bcast} dev $netif >> /tmp/net.$netif.up
+    ip addr add $ip${mask:+/$mask} ${bcast:+broadcast $bcast} dev $netif
 
     [ -n "$gw" ] && echo ip route add default via $gw dev $netif > /tmp/net.$netif.gw
 
@@ -66,23 +66,32 @@ case $reason in
         ;;
     BOUND)
         echo "dhcp: BOND setting $netif"
-        if ! arping -q -D -c 2 -I $netif $new_ip_address ; then
-            warn "Duplicate address detected for $new_ip_address while doing dhcp. retrying"
-            exit 1
+        unset layer2
+        if [ -f /sys/class/net/$netif/device/layer2 ]; then
+            read layer2 < /sys/class/net/$netif/device/layer2
         fi
+        if [ "$layer2" != "0" ]; then
+            if ! arping -q -D -c 2 -I $netif $new_ip_address ; then
+                warn "Duplicate address detected for $new_ip_address while doing dhcp. retrying"
+                exit 1
+            fi
+        fi
+        unset layer2
         setup_interface
         set | while read line; do
             [ "${line#new_}" = "$line" ] && continue
             echo "$line"
         done >/tmp/dhclient.$netif.dhcpopts
-        echo online > /sys/class/net/$netif/uevent
 
-        if [ -e /tmp/net.$netif.manualup ]; then
-            /sbin/netroot $netif -m
-            rm -f /tmp/net.$netif.manualup
-        else
-            initqueue --onetime --name netroot-$netif netroot $netif
-        fi
+        {
+            echo '. /lib/net-lib.sh'
+            echo "setup_net $netif"
+            echo "source_hook initqueue/online $netif"
+            [ -e /tmp/net.$netif.manualup ] || echo "/sbin/netroot $netif"
+            echo "rm -f $hookdir/initqueue/setup_net_$netif.sh"
+        } > $hookdir/initqueue/setup_net_$netif.sh
+
+        >/tmp/net.$netif.up
         ;;
     *) echo "dhcp: $reason";;
 esac

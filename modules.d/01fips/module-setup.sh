@@ -19,11 +19,12 @@ installkernel() {
     mkdir -m 0755 -p "${initdir}/etc/modprobe.d"
 
     for _mod in $_fipsmodules; do
-        if instmods $_mod; then
+        if hostonly='' instmods $_mod; then
             echo $_mod >> "${initdir}/etc/fipsmodules"
             echo "blacklist $_mod" >> "${initdir}/etc/modprobe.d/fips.conf"
         fi
     done
+    hostonly='' instmods scsi_wait_scan
 }
 
 install() {
@@ -34,12 +35,11 @@ install() {
 
     dracut_install sha512hmac rmmod insmod mount uname umount
 
-    for _dir in "$usrlibdir" "$libdir"; do
-        [[ -e $_dir/libsoftokn3.so ]] && \
-            dracut_install $_dir/libsoftokn3.so $_dir/libsoftokn3.chk \
-            $_dir/libfreebl3.so $_dir/libfreebl3.chk && \
-            break
-    done
+    inst_libdir_file libsoftokn3.so
+    inst_libdir_file libsoftokn3.so
+    inst_libdir_file libsoftokn3.chk
+    inst_libdir_file libfreebl3.so
+    inst_libdir_file libfreebl3.chk
 
     dracut_install $usrlibdir/hmaccalc/sha512hmac.hmac
     if command -v prelink >/dev/null; then

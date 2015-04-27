@@ -2,6 +2,14 @@
 # -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
 # ex: ts=8 sw=4 sts=4 et filetype=sh
 
+debug_off() {
+    set +x
+}
+
+debug_on() {
+    [ "$RD_DEBUG" = "yes" ] && set -x
+}
+
 # returns OK if $1 contains $2
 strstr() {
     [ "${1#*$2*}" != "$1" ]
@@ -10,6 +18,11 @@ strstr() {
 # returns OK if $1 contains $2 at the beginning
 str_starts() {
     [ "${1#$2*}" != "$1" ]
+}
+
+# returns OK if $1 contains $2 at the end
+str_ends() {
+    [ "${1%*$2}" != "$1" ]
 }
 
 # replaces all occurrences of 'search' in 'str' with 'replacement'
@@ -35,6 +48,7 @@ _getcmdline() {
     local _i
     unset _line
     if [ -z "$CMDLINE" ]; then
+        unset CMDLINE_ETC CMDLINE_ETC_D
         if [ -e /etc/cmdline ]; then
             while read -r _line; do
                 CMDLINE_ETC="$CMDLINE_ETC $_line";
@@ -88,29 +102,29 @@ _dogetarg() {
 }
 
 getarg() {
-    set +x
+    debug_off
     while [ $# -gt 0 ]; do
         case $1 in
             -y) if _dogetarg $2 >/dev/null; then
                     echo 1
-                    [ "$RD_DEBUG" = "yes" ] && set -x
+                    debug_on
                     return 0
                 fi
                 shift 2;;
             -n) if _dogetarg $2 >/dev/null; then
                     echo 0;
-                    [ "$RD_DEBUG" = "yes" ] && set -x
+                    debug_on
                     return 1
                 fi
                 shift 2;;
             *)  if _dogetarg $1; then
-                    [ "$RD_DEBUG" = "yes" ] && set -x
+                    debug_on
                     return 0;
                 fi
                 shift;;
         esac
     done
-    [ "$RD_DEBUG" = "yes" ] && set -x
+    debug_on
     return 1
 }
 
@@ -130,7 +144,7 @@ getargbool() {
 }
 
 _dogetargs() {
-    set +x
+    debug_off
     local _o _found _key
     unset _o
     unset _found
@@ -153,7 +167,7 @@ _dogetargs() {
 }
 
 getargs() {
-    set +x
+    debug_off
     local _val _i _args _gfound
     unset _val
     unset _gfound
@@ -170,10 +184,10 @@ getargs() {
         else
             echo -n 1
         fi
-        [ "$RD_DEBUG" = "yes" ] && set -x
+        debug_on
         return 0
     fi
-    [ "$RD_DEBUG" = "yes" ] && set -x
+    debug_on
     return 1;
 }
 
@@ -216,17 +230,19 @@ getoptcomma() {
 #
 # TODO: ':' inside fields.
 splitsep() {
+    debug_off
     local sep="$1"; local str="$2"; shift 2
     local tmp
 
-    while [ -n "$str" -a -n "$*" ]; do
+    while [ -n "$str" -a "$#" -gt 1 ]; do
         tmp="${str%%$sep*}"
         eval "$1=${tmp}"
         str="${str#$tmp}"
         str="${str#$sep}"
         shift
     done
-
+    [ -n "$str" -a -n "$1" ] && eval "$1=$str"
+    debug_on
     return 0
 }
 
@@ -242,22 +258,26 @@ setdebug() {
         fi
         export RD_DEBUG
     fi
-    [ "$RD_DEBUG" = "yes" ] && set -x
+    debug_on
 }
 
 setdebug
 
 source_all() {
     local f
-    [ "$1" ] && [  -d "/$1" ] || return
-    for f in "/$1"/*.sh; do [ -e "$f" ] && . "$f"; done
+    local _dir
+    _dir=$1; shift
+    [ "$_dir" ] && [  -d "/$_dir" ] || return
+    for f in "/$_dir"/*.sh; do [ -e "$f" ] && . "$f" "$@"; done
 }
 
 hookdir=/lib/dracut/hooks
 export hookdir
 
 source_hook() {
-    source_all "/lib/dracut/hooks/$1"
+    local _dir
+    _dir=$1; shift
+    source_all "/lib/dracut/hooks/$_dir" "$@"
 }
 
 check_finished() {
@@ -287,6 +307,7 @@ die() {
     } >> $hookdir/emergency/01-die.sh
 
     > /run/initramfs/.die
+    emergency_shell
     exit 1
 }
 
@@ -296,6 +317,9 @@ check_quiet() {
         getargbool 0 rd.info -y rdinfo && DRACUT_QUIET="no"
         getargbool 0 rd.debug -y rdinitdebug && DRACUT_QUIET="no"
         getarg quiet || DRACUT_QUIET="yes"
+        a=$(getarg loglevel=)
+        [ -n "$a" ] && [ $a -ge 28 ] && DRACUT_QUIET="yes"
+        export DRACUT_QUIET
     fi
 }
 
@@ -341,6 +365,7 @@ check_occurances() {
 }
 
 incol2() {
+    debug_off
     local dummy check;
     local file="$1";
     local str="$2";
@@ -349,13 +374,17 @@ incol2() {
     [ -z "$str"  ] && return 1;
 
     while read dummy check restofline; do
-        [ "$check" = "$str" ] && return 0
+        if [ "$check" = "$str" ]; then
+            debug_on
+            return 0
+        fi
     done < $file
+    debug_on
     return 1
 }
 
 udevsettle() {
-    [ -z "$UDEVVERSION" ] && UDEVVERSION=$(udevadm --version)
+    [ -z "$UDEVVERSION" ] && export UDEVVERSION=$(udevadm --version)
 
     if [ $UDEVVERSION -ge 143 ]; then
         udevadm settle --exit-if-exists=$hookdir/initqueue/work $settle_exit_if_exists
@@ -365,7 +394,7 @@ udevsettle() {
 }
 
 udevproperty() {
-    [ -z "$UDEVVERSION" ] && UDEVVERSION=$(udevadm --version)
+    [ -z "$UDEVVERSION" ] && export UDEVVERSION=$(udevadm --version)
 
     if [ $UDEVVERSION -ge 143 ]; then
         for i in "$@"; do udevadm control --property=$i; done
@@ -502,6 +531,17 @@ mkuniqdir() {
     done
 
     echo "${retdir}"
+}
+
+# Copy the contents of SRC into DEST, merging the contents of existing
+# directories (kinda like rsync, or cpio -p).
+# Creates DEST if it doesn't exist. Overwrites files with the same names.
+#
+# copytree SRC DEST
+copytree() {
+    local src="$1" dest="$2"
+    mkdir -p "$dest"; dest=$(readlink -e -q "$dest")
+    ( cd "$src"; cp -af . -t "$dest" )
 }
 
 # Evaluates command for UUIDs either given as arguments for this function or all
@@ -713,6 +753,7 @@ cancel_wait_for_dev()
 }
 
 killproc() {
+    debug_off
     local _exe="$(command -v $1)"
     local _sig=$2
     local _i
@@ -723,6 +764,7 @@ killproc() {
             kill $_sig ${_i##*/}
         fi
     done
+    debug_on
 }
 
 need_shutdown() {
@@ -733,7 +775,7 @@ wait_for_loginit()
 {
     [ "$RD_DEBUG" = "yes" ] || return
     [ -e /run/initramfs/loginit.pipe ] || return
-    set +x
+    debug_off
     echo "DRACUT_LOG_END"
     exec 0<>/dev/console 1<>/dev/console 2<>/dev/console
         # wait for loginit
@@ -761,18 +803,18 @@ emergency_shell()
 {
     local _ctty
     set +e
+    local _rdshell_name="dracut" action="Boot" hook="emergency"
     if [ "$1" = "-n" ]; then
         _rdshell_name=$2
         shift 2
-    else
-        _rdshell_name=dracut
+    elif [ "$1" = "--shutdown" ]; then
+        _rdshell_name=$2; action="Shutdown"; hook="shutdown-emergency"
+        shift 2
     fi
     echo ; echo
     warn $@
-    source_hook emergency
+    source_hook "$hook"
     echo
-    wait_for_loginit
-    [ -e /run/initramfs/.die ] && exit 1
     if getargbool 1 rd.shell -y rdshell || getarg rd.break rdbreak; then
         echo "Dropping to debug shell."
         echo
@@ -792,8 +834,22 @@ emergency_shell()
         strstr "$(setsid --help 2>/dev/null)" "ctty" && CTTY="-c"
         setsid $CTTY /bin/sh -i -l 0<$_ctty 1>$_ctty 2>&1
     else
-        warn "Boot has failed. To debug this issue add \"rdshell\" to the kernel command line."
+        warn "$action has failed. To debug this issue add \"rd.shell\" to the kernel command line."
         # cause a kernel panic
         exit 1
     fi
+    [ -e /run/initramfs/.die ] && exit 1
+}
+
+# Retain the values of these variables but ensure that they are unexported
+# This is a POSIX-compliant equivalent of bash's "export -n"
+export_n()
+{
+    local var
+    local val
+    for var in "$@"; do
+        eval val=\$$var
+        unset $var
+        [ -n "$val" ] && eval $var=\"$val\"
+    done
 }

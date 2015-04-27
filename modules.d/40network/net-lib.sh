@@ -59,17 +59,15 @@ ifdown() {
     ip link set $netif down
     ip addr flush dev $netif
     echo "#empty" > /etc/resolv.conf
+    rm -f /tmp/net.$netif.did-setup
     # TODO: send "offline" uevent?
 }
 
 setup_net() {
     local netif="$1" f="" gw_ip="" netroot_ip="" iface="" IFACES=""
-    [ -e /tmp/net.$netif.up ] || return 1
+    [ -e /tmp/net.$netif.did-setup ] && return
     [ -e "/tmp/net.ifaces" ] && read IFACES < /tmp/net.ifaces
     [ -z "$IFACES" ] && IFACES="$netif"
-    for iface in $IFACES ; do
-        . /tmp/net.$iface.up
-    done
     # run the scripts written by ifup
     [ -e /tmp/net.$netif.gw ]            && . /tmp/net.$netif.gw
     [ -e /tmp/net.$netif.hostname ]      && . /tmp/net.$netif.hostname
@@ -97,9 +95,34 @@ setup_net() {
     else
         dest="$gw_ip"
     fi
-    if [ -n "$dest" ] && ! arping -q -f -w 60 -I $netif $dest ; then
+
+    unset layer2
+    if [ -f /sys/class/net/$netif/device/layer2 ]; then
+        read layer2 < /sys/class/net/$netif/device/layer2
+    fi
+
+    if [ "$layer2" != "0" ] && [ -n "$dest" ] && ! arping -q -f -w 60 -I $netif $dest ; then
         info "Resolving $dest via ARP on $netif failed"
     fi
+    unset layer2
+
+    > /tmp/net.$netif.did-setup
+}
+
+save_netinfo() {
+    local netif="$1" IFACES="" f="" i=""
+    [ -e /tmp/net.ifaces ] && read IFACES < /tmp/net.ifaces
+    # Add $netif to the front of IFACES (if it's not there already).
+    set -- "$netif"
+    for i in $IFACES; do [ "$i" != "$netif" ] && set -- "$@" "$i"; done
+    IFACES="$*"
+    for i in $IFACES; do
+        for f in /tmp/dhclient.$i.*; do
+            [ -f $f ] && cp -f $f /tmp/net.${f#/tmp/dhclient.}
+        done
+    done
+    echo $IFACES > /tmp/.net.ifaces.new
+    mv /tmp/.net.ifaces.new /tmp/net.ifaces
 }
 
 set_ifname() {
@@ -251,4 +274,18 @@ ip_to_var() {
         4)  dev=$1; autoconf=$2; mtu=$3; macaddr=$4 ;;
         *)  ip=$1; srv=$2; gw=$3; mask=$4; hostname=$5; dev=$6; autoconf=$7; mtu=$8; macaddr=$9 ;;
     esac
+    # anaconda-style argument cluster
+    if strstr "$autoconf" "*.*.*.*"; then
+        ip="$autoconf"
+        gw=$(getarg gateway=)
+        mask=$(getarg netmask=)
+        hostname=$(getarg hostname=)
+        dev=$(getarg ksdevice=)
+        autoconf="none"
+        mtu=$(getarg mtu=)
+        case "$dev" in
+            # ignore fancy values for ksdevice=XXX
+            link|bootif|BOOTIF|ibft|*:*:*:*:*:*) dev="" ;;
+        esac
+    fi
 }
