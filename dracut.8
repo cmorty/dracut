@@ -30,10 +30,10 @@ add a space-separated list of dracut modules.
 .BR \-d ", " \-\-drivers " \fILIST\fR"
 specify a space-separated list of kernel modules to include in the initramfs.
 .TP
-.BR \-k ", " \-\-kmoddir " \fI[DIR]\fR   
+.BR \-k ", " \-\-kmoddir " \fI{DIR}\fR   
 specify the directory, where to look for kernel modules
 .TP
-.BR " \-\-fwdir " \fI[DIR]\fR   
+.BR " \-\-fwdir " \fI{DIR}\fR   
 specify additional directory, where to look for firmwares
 .TP
 .BR \-\-kernel-only
@@ -41,6 +41,12 @@ only install kernel drivers and firmware files
 .TP
 .BR \-\-no-kernel
 do not install kernel drivers and firmware files
+.TP
+.BR \-\-strip
+strip binaries in the initramfs (default)
+.TP
+.BR \-\-nostrip
+do not strip binaries in the initramfs
 .TP
 .BR \-h ", " \-\-help
 display help text and exit. 
@@ -151,6 +157,11 @@ disable DM RAID detection
 .B rd_DM_UUID=<dmraid uuid>
 only activate the raid sets with the given UUID
 
+.SH DASD
+.TP
+.B dasd=....
+same syntax as the kernel module parameter (s390 only)
+
 .SH DHCP
 .TP
 .B root=dhcp
@@ -224,13 +235,13 @@ This syntax is only usable in cases where you are directly mounting the volume a
 .TP bootdev=<interface>
 .B specify the network interface to boot from
 .TP
-.B ip=[dhcp|on|any]
+.B ip={dhcp|on|any}
 get ip from dhcp server from all interfaces. If root=dhcp, loop sequentially through all interfaces (eth0, eth1, ...) and use the first with a valid DHCP root-path.
 .TP
-.B ip=<interface>:[dhcp|on|any]
+.B ip=<interface>:{dhcp|on|any}
 get ip from dhcp server on a specific interface
 .TP
-.B ip=<client-IP-number>:<gateway-IP-number>:<netmask>:<client-hostname>:<interface>:[dhcp|on|any|]
+.B ip=<client-IP-number>:[<server-id>]:<gateway-IP-number>:<netmask>:<client-hostname>:<interface>:{none|off}
 explicit network configuration
 
 .SH Misc
@@ -241,13 +252,16 @@ do not load kernel module <drivername>
 .SH Debug
 .TP
 .B rdshell
-drop to a shell, if the imitramfs fails
+allow dropping to a shell, if root mounting fails
 .TP
 .B rdinitdebug
 set -x for the dracut shell
 .TP
-.B rdbreak=[pre-udev|pre-mount|mount|pre-pivot|]
-drop the shell on defined breakpoint
+.B rdbreak
+drop to a shell at the end
+.TP
+.B rdbreak={pre-udev|pre-mount|mount|pre-pivot|commandline|initqueue}
+drop to a shell on defined breakpoint
 .TP
 .B rdudevinfo
 set udev to loglevel info
