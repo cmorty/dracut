@@ -81,7 +81,9 @@ Requires: gzip xz
 Requires: module-init-tools >= 3.7-9
 Requires: sed
 Requires: file
+Requires: kpartx
 Requires: udev > 166
+Requires: kbd kbd-misc
 %if 0%{?fedora} || 0%{?rhel} > 6
 Requires: util-linux >= 2.21
 Conflicts: systemd < 187
@@ -258,6 +260,7 @@ rm -rf $RPM_BUILD_ROOT
 %endif
 %dir /etc/dracut.conf.d
 %{_mandir}/man8/dracut.8*
+%{_mandir}/man8/*service.8*
 %if 0%{?fedora} > 12 || 0%{?rhel} >= 6 || 0%{?suse_version} > 9999
 %{_mandir}/man8/mkinitrd.8*
 %{_mandir}/man1/lsinitrd.1*
@@ -284,6 +287,7 @@ rm -rf $RPM_BUILD_ROOT
 %{dracutlibdir}/modules.d/90multipath
 %{dracutlibdir}/modules.d/90qemu
 %{dracutlibdir}/modules.d/91crypt-gpg
+%{dracutlibdir}/modules.d/91crypt-loop
 %{dracutlibdir}/modules.d/95debug
 %{dracutlibdir}/modules.d/95resume
 %{dracutlibdir}/modules.d/95rootfs-block
@@ -325,6 +329,7 @@ rm -rf $RPM_BUILD_ROOT
 %{dracutlibdir}/modules.d/95iscsi
 %{dracutlibdir}/modules.d/90livenet
 %{dracutlibdir}/modules.d/90qemu-net
+%{dracutlibdir}/modules.d/95cifs
 %{dracutlibdir}/modules.d/95nbd
 %{dracutlibdir}/modules.d/95nfs
 %{dracutlibdir}/modules.d/95ssh-client

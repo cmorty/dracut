@@ -13,8 +13,10 @@ depends() {
 
 install() {
     local _d
-    dracut_install mount mknod mkdir modprobe pidof sleep chroot \
+    dracut_install mount mknod mkdir pidof sleep chroot \
         sed ls flock cp mv dmesg rm ln rmmod mkfifo umount readlink setsid
+    inst $(command -v modprobe) /sbin/modprobe
+
     dracut_install -o less
     if [ ! -e "${initdir}/bin/sh" ]; then
         dracut_install bash
@@ -39,7 +41,6 @@ install() {
     dracut_install switch_root || dfatal "Failed to install switch_root"
 
     inst_simple "$moddir/dracut-lib.sh" "/lib/dracut-lib.sh"
-    inst_script "$moddir/mount-hook.sh" "/usr/bin/mount-hook"
     inst_hook cmdline 10 "$moddir/parse-root-opts.sh"
     mkdir -p "${initdir}/var"
     [ -x /lib/systemd/systemd-timestamp ] && inst /lib/systemd/systemd-timestamp
@@ -50,6 +51,9 @@ install() {
     fi
 
     ln -fs /proc/self/mounts "$initdir/etc/mtab"
+    if [[ $ro_mnt = yes ]]; then
+        echo ro >> "${initdir}/etc/cmdline.d/base.conf"
+    fi
 
     if [ -e /etc/os-release ]; then
         . /etc/os-release

@@ -61,23 +61,12 @@ installkernel() {
             }
             for_each_host_dev_fs inst_fs
         fi
-    else
-        hostonly='' instmods $drivers
     fi
-
-    if [[ $add_drivers ]]; then
-        hostonly='' instmods -c $add_drivers || return 1
-    fi
-    if [[ $filesystems ]]; then
-        hostonly='' instmods -c $filesystems || return 1
-    fi
-
 }
 
 install() {
-    local _f i
     [ -f /etc/modprobe.conf ] && dracut_install /etc/modprobe.conf
-    dracut_install $(find -L /{etc,lib}/modprobe.d/ -maxdepth 1 -type f -name '*.conf')
+    dracut_install -o /{etc,lib}/modprobe.d/*.conf
     inst_hook cmdline 01 "$moddir/parse-kernel.sh"
     inst_simple "$moddir/insmodpost.sh" /sbin/insmodpost.sh
 }

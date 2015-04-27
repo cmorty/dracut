@@ -101,6 +101,7 @@ Creates initial ramdisk images for preloading modules
   --nolvmconf           Do not include local /etc/lvm/lvm.conf
   --fscks [LIST]        Add a space-separated list of fsck helpers.
   --nofscks             Inhibit installation of any fsck helpers.
+  --ro-mnt              Mount / and /usr read-only by default.
   -h, --help            This message
   --debug               Output debug information of the build process
   --profile             Output profile information of the build process
@@ -126,7 +127,7 @@ Creates initial ramdisk images for preloading modules
                          Useful when running dracut from a git checkout.
   -H, --hostonly        Host-Only mode: Install only what is needed for
                          booting the local host instead of a generic host.
-  --no-hostonly         Disables Host-Only mode
+  -N, --no-hostonly     Disables Host-Only mode
   --fstab               Use /etc/fstab to determine the root device.
   --add-fstab [FILE]    Add file to the initramfs fstab
   --mount "[DEV] [MP] [FSTYPE] [FSOPTS]"
@@ -244,7 +245,7 @@ set -- "${@/--include/++include}"
 set -- "${@/%-i/++include}"
 
 TEMP=$(unset POSIXLY_CORRECT; getopt \
-    -o "a:m:o:d:I:k:c:L:fvqlHhM" \
+    -o "a:m:o:d:I:k:c:L:fvqlHhMN" \
     --long kver: \
     --long add: \
     --long force-add: \
@@ -261,6 +262,7 @@ TEMP=$(unset POSIXLY_CORRECT; getopt \
     --long add-fstab: \
     --long mount: \
     --long nofscks: \
+    --long ro-mnt \
     --long kmoddir: \
     --long conf: \
     --long confdir: \
@@ -326,6 +328,7 @@ while :; do
         --add-fstab)   push add_fstab_l          "$2"; shift;;
         --mount)       push fstab_lines          "$2"; shift;;
         --nofscks)     nofscks_l="yes";;
+        --ro-mnt)      ro_mnt_l="yes";;
         -k|--kmoddir)  drivers_dir_l="$2"; shift;;
         -c|--conf)     conffile="$2"; shift;;
         --confdir)     confdir="$2"; shift;;
@@ -356,7 +359,7 @@ while :; do
                            && dracutbasedir="$(readlink -f ${0%/*})"
                        ;;
         -H|--hostonly) hostonly_l="yes" ;;
-        --no-hostonly) hostonly_l="no" ;;
+        -N|--no-hostonly) hostonly_l="no" ;;
         --fstab)       use_fstab_l="yes" ;;
         -h|--help)     long_usage; exit 1 ;;
         -i|--include)  push include_src "$2"
@@ -558,6 +561,7 @@ stdloglvl=$((stdloglvl + verbosity_mod_l))
 [[ $compress_l ]] && compress=$compress_l
 [[ $show_modules_l ]] && show_modules=$show_modules_l
 [[ $nofscks_l ]] && nofscks="yes"
+[[ $ro_mnt_l ]] && ro_mnt="yes"
 # eliminate IFS hackery when messing with fw_dir
 fw_dir=${fw_dir//:/ }
 
@@ -596,11 +600,18 @@ else
     exit 1
 fi
 
+inst /bin/sh
+if ! $DRACUT_INSTALL ${initdir+-D "$initdir"} -R "$initdir/bin/sh" &>/dev/null; then
+    unset DRACUT_RESOLVE_LAZY
+    export DRACUT_RESOLVE_DEPS=1
+fi
+rm -fr ${initdir}/*
+
 if [[ -f $dracutbasedir/dracut-version.sh ]]; then
     . $dracutbasedir/dracut-version.sh
 fi
 
-# Verify bash version, curret minimum is 3.1
+# Verify bash version, current minimum is 3.1
 if (( ${BASH_VERSINFO[0]} < 3 ||
     ( ${BASH_VERSINFO[0]} == 3 && ${BASH_VERSINFO[1]} < 1 ) )); then
     dfatal 'You need at least Bash 3.1 to use dracut, sorry.'
@@ -776,14 +787,14 @@ if ! [[ -d "$systemdutildir" ]]; then
 fi
 [[ -d "$systemdsystemunitdir" ]] || systemdsystemunitdir=${systemdutildir}/system
 
-export initdir dracutbasedir dracutmodules drivers \
+export initdir dracutbasedir dracutmodules \
     fw_dir drivers_dir debug no_kernel kernel_only \
-    add_drivers omit_drivers mdadmconf lvmconf filesystems \
-    use_fstab fstab_lines libdirs fscks nofscks \
+    omit_drivers mdadmconf lvmconf \
+    use_fstab fstab_lines libdirs fscks nofscks ro_mnt \
     stdloglvl sysloglvl fileloglvl kmsgloglvl logfile \
     debug host_fs_types host_devs sshkey add_fstab \
     DRACUT_VERSION udevdir systemdutildir systemdsystemunitdir \
-    prefix
+    prefix filesystems drivers
 
 # Create some directory structure first
 [[ $prefix ]] && mkdir -m 0755 -p "${initdir}${prefix}"
@@ -799,7 +810,7 @@ if [[ $prefix ]]; then
 fi
 
 if [[ $kernel_only != yes ]]; then
-    for d in usr/bin usr/sbin bin etc lib sbin tmp usr var var/log var/run var/lock $libdirs; do
+    for d in usr/bin usr/sbin bin etc lib sbin tmp usr var var/log $libdirs; do
         [[ -e "${initdir}${prefix}/$d" ]] && continue
         if [ -L "/$d" ]; then
             inst_symlink "/$d" "${prefix}/$d"
@@ -816,8 +827,8 @@ if [[ $kernel_only != yes ]]; then
         fi
     done
 
-    ln -sfn /run "$initdir/var/run"
-    ln -sfn /run/lock "$initdir/var/lock"
+    ln -sfn ../run "$initdir/var/run"
+    ln -sfn ../run/lock "$initdir/var/lock"
 else
     for d in lib "$libdir"; do
         [[ -e "${initdir}${prefix}/$d" ]] && continue
@@ -894,6 +905,18 @@ dinfo "*** Including modules done ***"
 
 ## final stuff that has to happen
 if [[ $no_kernel != yes ]]; then
+
+    if [[ $drivers ]]; then
+        hostonly='' instmods $drivers
+    fi
+
+    if [[ $add_drivers ]]; then
+        hostonly='' instmods -c $add_drivers
+    fi
+    if [[ $filesystems ]]; then
+        hostonly='' instmods -c $filesystems
+    fi
+
     dinfo "*** Installing kernel module dependencies and firmware ***"
     dracut_kernel_post
     dinfo "*** Installing kernel module dependencies and firmware done ***"

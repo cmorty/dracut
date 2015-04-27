@@ -357,6 +357,33 @@ find_dev_fstype() {
     return 1
 }
 
+# find_mp_fstype <mountpoint>
+# Echo the filesystem type for a given mountpoint.
+# /proc/self/mountinfo is taken as the primary source of information
+# and /etc/fstab is used as a fallback.
+# No newline is appended!
+# Example:
+# $ find_mp_fstype /;echo
+# ext4
+find_mp_fstype() {
+    local _x _mpt _majmin _dev _fs _maj _min
+    while read _x _x _majmin _x _mpt _x _x _fs _dev _x; do
+        [[ $_mpt = $1 ]] || continue
+        echo -n $_fs;
+        return 0;
+    done < /proc/self/mountinfo
+
+    # fall back to /etc/fstab
+    while read _dev _mpt _fs _x; do
+        [[ $_mpt = $1 ]] || continue
+        echo -n $_fs;
+        return 0;
+    done < /etc/fstab
+
+    return 1
+}
+
+
 # finds the major:minor of the block device backing the root filesystem.
 find_root_block_device() { find_block_device /; }
 
@@ -425,6 +452,26 @@ check_vol_slaves() {
         fi
     done
     return 1
+}
+
+# fs_get_option <filesystem options> <search for option>
+# search for a specific option in a bunch of filesystem options
+# and return the value
+fs_get_option() {
+    local _fsopts=$1
+    local _option=$2
+    local OLDIFS="$IFS"
+    IFS=,
+    set -- $_fsopts
+    IFS="$OLDIFS"
+    while [ $# -gt 0 ]; do
+        case $1 in
+            $_option=*)
+                echo ${1#${_option}=}
+                break
+        esac
+        shift
+    done
 }
 
 if [[ $DRACUT_INSTALL ]]; then
@@ -710,12 +757,12 @@ inst_rule_programs() {
                 _bin=${udevdir}/$_prog
             else
                 _bin=$(find_binary "$_prog") || {
-                    dinfo "Skipping program $_prog using in udev rule $(basename $1) as it cannot be found"
+                    dinfo "Skipping program $_prog using in udev rule ${1##*/} as it cannot be found"
                     continue;
                 }
             fi
 
-            #dinfo "Installing $_bin due to it's use in the udev rule $(basename $1)"
+            #dinfo "Installing $_bin due to it's use in the udev rule $(${1##*/})"
             dracut_install "$_bin"
         done
     fi
@@ -725,27 +772,27 @@ inst_rule_programs() {
                 _bin=${udevdir}/$_prog
             else
                 _bin=$(find_binary "$_prog") || {
-                    dinfo "Skipping program $_prog using in udev rule $(basename $1) as it cannot be found"
+                    dinfo "Skipping program $_prog using in udev rule ${1##*/} as it cannot be found"
                     continue;
                 }
             fi
 
-            #dinfo "Installing $_bin due to it's use in the udev rule $(basename $1)"
+            #dinfo "Installing $_bin due to it's use in the udev rule $(${1##*/})"
             dracut_install "$_bin"
         done
     fi
-    if grep -qE 'PROGRAM==?"[^ "]+' "$1"; then
-        for _prog in $(grep -E 'IMPORT==?"[^ "]+' "$1" | sed -r 's/.*IMPORT==?"([^ "]+).*/\1/'); do
+    if grep -qE 'IMPORT\{program\}==?"[^ "]+' "$1"; then
+        for _prog in $(grep -E 'IMPORT\{program\}==?"[^ "]+' "$1" | sed -r 's/.*IMPORT\{program\}==?"([^ "]+).*/\1/'); do
             if [ -x ${udevdir}/$_prog ]; then
                 _bin=${udevdir}/$_prog
             else
                 _bin=$(find_binary "$_prog") || {
-                    dinfo "Skipping program $_prog using in udev rule $(basename $1) as it cannot be found"
+                    dinfo "Skipping program $_prog using in udev rule ${1##*/} as it cannot be found"
                     continue;
                 }
             fi
 
-            #dinfo "Installing $_bin due to it's use in the udev rule $(basename $1)"
+            #dinfo "Installing $_bin due to it's use in the udev rule $(${1##*/})"
             dracut_install "$_bin"
         done
     fi
@@ -791,7 +838,7 @@ inst_hook() {
         dfatal "No such hook type $1. Aborting initrd creation."
         exit 1
     fi
-    inst_simple "$3" "/lib/dracut/hooks/${1}/${2}${3##*/}"
+    inst_simple "$3" "/lib/dracut/hooks/${1}/${2}-${3##*/}"
 }
 
 # install any of listed files
@@ -1135,7 +1182,7 @@ for_each_module_dir() {
     for _mod in $_modcheck; do
         strstr "$mods_to_load" "$_mod" && continue
         strstr "$omit_dracutmodules" "$_mod" && continue
-        derror "Dracut module \"$_mod\" cannot be found or installed."
+        derror "Dracut module '$_mod' cannot be found or installed."
     done
 }
 
