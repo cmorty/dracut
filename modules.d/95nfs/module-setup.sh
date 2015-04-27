@@ -31,30 +31,18 @@ installkernel() {
 install() {
     local _i
     local _nsslibs
-    type -P portmap >/dev/null && dracut_install portmap
-    type -P rpcbind >/dev/null && dracut_install rpcbind
+    dracut_install -o portmap rpcbind rpc.statd mount.nfs \
+        mount.nfs4 umount rpc.idmapd sed /etc/netconfig
+    dracut_install /etc/services /etc/nsswitch.conf /etc/rpc /etc/protocols /etc/idmapd.conf
 
-    dracut_install rpc.statd mount.nfs mount.nfs4 umount
-    [ -f /etc/netconfig ] && inst_simple /etc/netconfig
-    inst_simple /etc/services
-    for i in /etc/nsswitch.conf /etc/rpc /etc/protocols /etc/idmapd.conf; do
-        inst_simple $i
-    done
-    dracut_install rpc.idmapd
-    dracut_install sed
-
-    for _i in {"$libdir","$usrlibdir"}/libnfsidmap_nsswitch.so* \
-        {"$libdir","$usrlibdir"}/libnfsidmap/*.so \
-        {"$libdir","$usrlibdir"}/libnfsidmap*.so*; do
-        [ -e "$_i" ] && dracut_install "$_i"
-    done
+    inst_libdir_file 'libnfsidmap_nsswitch.so*' 'libnfsidmap/*.so' 'libnfsidmap*.so*'
 
     _nsslibs=$(sed -e '/^#/d' -e 's/^.*://' -e 's/\[NOTFOUND=return\]//' /etc/nsswitch.conf \
         |  tr -s '[:space:]' '\n' | sort -u | tr -s '[:space:]' '|')
     _nsslibs=${_nsslibs#|}
     _nsslibs=${_nsslibs%|}
 
-    inst_libdir_file -n "$_nsslibs" "libnss*.so"
+    inst_libdir_file -n "$_nsslibs" 'libnss*.so*'
 
     inst_hook cmdline 90 "$moddir/parse-nfsroot.sh"
     inst_hook pre-udev 99 "$moddir/nfs-start-rpc.sh"

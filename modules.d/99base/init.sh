@@ -22,8 +22,6 @@ RD_DEBUG=""
 
 trap "emergency_shell Signal caught!" 0
 
-[ -c /dev/null ] || mknod -m 0666 /dev/null c 1 3
-
 # mount some important things
 [ ! -d /proc/self ] && \
     mount -t proc -o nosuid,noexec,nodev proc /proc >/dev/null 2>&1
@@ -180,7 +178,7 @@ while :; do
 
     main_loop=$(($main_loop+1))
     [ $main_loop -gt $RDRETRY ] \
-        && { flock -s 9 ; emergency_shell "Unable to process initqueue"; } 9>/.console_lock
+        && { flock -s 9 ; emergency_shell "Could not boot."; } 9>/.console_lock
 done
 unset job
 unset queuetriggered

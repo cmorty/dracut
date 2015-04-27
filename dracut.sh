@@ -26,6 +26,8 @@
 # store for logging
 dracut_args="$@"
 
+set -o pipefail
+
 usage() {
     [[ $dracutbasedir ]] || dracutbasedir=/usr/lib/dracut
     if [[ -f $dracutbasedir/dracut-version.sh ]]; then
@@ -217,6 +219,8 @@ push_arg() {
 }
 
 verbosity_mod_l=0
+unset kernel
+unset outfile
 
 while (($# > 0)); do
     case ${1%%=*} in
@@ -289,6 +293,7 @@ while (($# > 0)); do
             elif ! [[ ${kernel+x} ]]; then
                 kernel=$1
             else
+                echo "Unknown argument: $1"
                 usage; exit 1;
             fi
             ;;
@@ -312,7 +317,9 @@ unset NPATH
 unset LD_LIBRARY_PATH
 unset GREP_OPTIONS
 
+export DRACUT_LOG_LEVEL=warning
 [[ $debug ]] && {
+    export DRACUT_LOG_LEVEL=debug
     export PS4='${BASH_SOURCE}@${LINENO}(${FUNCNAME[0]}): ';
     set -x
 }
@@ -460,12 +467,22 @@ fi
 [[ $hostonly = yes ]] && hostonly="-h"
 [[ $hostonly != "-h" ]] && unset hostonly
 
+readonly TMPDIR="$tmpdir"
+readonly initdir=$(mktemp --tmpdir="$TMPDIR/" -d -t initramfs.XXXXXX)
+[ -d "$initdir" ] || {
+    echo "dracut: mktemp --tmpdir=\"$TMPDIR/\" -d -t initramfs.XXXXXXfailed." >&2
+    exit 1
+}
+
+export DRACUT_KERNEL_LAZY="1"
+export DRACUT_RESOLVE_LAZY="1"
+
 if [[ -f $dracutbasedir/dracut-functions.sh ]]; then
     . $dracutbasedir/dracut-functions.sh
 else
-    echo "Cannot find $dracutbasedir/dracut-functions.sh." >&2
-    echo "Are you running from a git checkout?" >&2
-    echo "Try passing -l as an argument to $0" >&2
+    echo "dracut: Cannot find $dracutbasedir/dracut-functions.sh." >&2
+    echo "dracut: Are you running from a git checkout?" >&2
+    echo "dracut: Try passing -l as an argument to $0" >&2
     exit 1
 fi
 
@@ -526,25 +543,6 @@ ddebug "Executing $0 $dracut_args"
     exit 0
 }
 
-# Detect lib paths
-if ! [[ $libdir ]] || ! [[ $usrlibdir ]] ; then
-    if strstr "$(ldd /bin/sh)" "/lib64/" &>/dev/null \
-        && [[ -d /lib64 ]]; then
-        libdir=/lib64
-        usrlibdir=/usr/lib64
-    else
-        libdir=/lib
-        usrlibdir=/usr/lib
-    fi
-    for i in $libdir $usrlibdir; do
-        if [[ -d $i ]]; then
-            libdirs+=" $i"
-        else
-            dwarn 'No $i directory??!!'
-        fi
-    done
-fi
-
 # This is kinda legacy -- eventually it should go away.
 case $dracutmodules in
     ""|auto) dracutmodules="all" ;;
@@ -552,15 +550,10 @@ esac
 
 abs_outfile=$(readlink -f "$outfile") && outfile="$abs_outfile"
 
-srcmods="/lib/modules/$kernel/"
-[[ $drivers_dir ]] && {
-    if vercmp $(modprobe --version | cut -d' ' -f3) lt 3.7; then
-        dfatal 'To use --kmoddir option module-init-tools >= 3.7 is required.'
-        exit 1
-    fi
-    srcmods="$drivers_dir"
+[[ -f $srcmods/modules.dep ]] || {
+    dfatal "$srcmods/modules.dep is missing. Did you run depmod?"
+    exit 1
 }
-export srcmods
 
 if [[ -f $outfile && ! $force ]]; then
     dfatal "Will not override existing initramfs ($outfile) without --force"
@@ -580,13 +573,6 @@ elif [[ -f "$outfile" && ! -w "$outfile" ]]; then
     dfatal "No permission to write $outfile."
     exit 1
 fi
-
-readonly TMPDIR="$tmpdir"
-readonly initdir=$(mktemp --tmpdir="$TMPDIR/" -d -t initramfs.XXXXXX)
-[ -d "$initdir" ] || {
-    dfatal "mktemp failed."
-    exit 1
-}
 
 # clean up after ourselves no matter how we die.
 trap 'ret=$?;[[ $keep ]] && echo "Not removing $initdir." >&2 || rm -rf "$initdir";exit $ret;' EXIT
@@ -657,13 +643,31 @@ for dev in "${host_devs[@]}"; do
     done
 done
 
+[[ -d $udevdir ]] \
+    || udevdir=$(pkg-config udev --variable=udevdir 2>/dev/null)
+if ! [[ -d "$udevdir" ]]; then
+    [[ -d /lib/udev ]] && udevdir=/lib/udev
+    [[ -d /usr/lib/udev ]] && udevdir=/usr/lib/udev
+fi
+
+[[ -d $systemdutildir ]] \
+    || systemdutildir=$(pkg-config systemd --variable=systemdutildir 2>/dev/null)
+[[ -d $systemdsystemunitdir ]] \
+    || systemdsystemunitdir=$(pkg-config systemd --variable=systemdsystemunitdir 2>/dev/null)
+
+if ! [[ -d "$systemdutildir" ]]; then
+    [[ -d /lib/systemd ]] && systemdutildir=/lib/systemd
+    [[ -d /usr/lib/systemd ]] && systemdutildir=/usr/lib/systemd
+fi
+[[ -d "$systemdsystemunitdir" ]] || systemdsystemunitdir=${systemdutildir}/system
+
 export initdir dracutbasedir dracutmodules drivers \
     fw_dir drivers_dir debug no_kernel kernel_only \
     add_drivers omit_drivers mdadmconf lvmconf filesystems \
-    use_fstab fstab_lines libdir usrlibdir fscks nofscks \
+    use_fstab fstab_lines libdirs fscks nofscks \
     stdloglvl sysloglvl fileloglvl kmsgloglvl logfile \
     debug host_fs_types host_devs sshkey add_fstab \
-    DRACUT_VERSION
+    DRACUT_VERSION udevdir systemdutildir systemdsystemunitdir
 
 # Create some directory structure first
 [[ $prefix ]] && mkdir -m 0755 -p "${initdir}${prefix}"
@@ -672,13 +676,14 @@ export initdir dracutbasedir dracutmodules drivers \
 [[ $prefix ]] && ln -sfn "${prefix#/}/lib" "$initdir/lib"
 
 if [[ $prefix ]]; then
-    for d in bin etc lib "$libdir" sbin tmp usr var; do
+    for d in bin etc lib sbin tmp usr var $libdirs; do
+        strstr "$d" "/" && continue
         ln -sfn "${prefix#/}/${d#/}" "$initdir/$d"
     done
 fi
 
 if [[ $kernel_only != yes ]]; then
-    for d in usr/bin usr/sbin bin etc lib "$libdir" sbin tmp usr var var/log var/run var/lock; do
+    for d in usr/bin usr/sbin bin etc lib sbin tmp usr var var/log var/run var/lock $libdirs; do
         [[ -e "${initdir}${prefix}/$d" ]] && continue
         if [ -L "/$d" ]; then
             inst_symlink "/$d" "${prefix}/$d"
@@ -714,17 +719,19 @@ if [[ $kernel_only != yes ]]; then
         mkdir -m 0755 -p ${initdir}/lib/dracut/hooks/$_d
     done
     if [[ "$UID" = "0" ]]; then
-        cp -a /dev/kmsg /dev/null /dev/console $initdir/dev
+        [ -c ${initdir}/dev/null ] || mknod ${initdir}/dev/null c 1 3
+        [ -c ${initdir}/dev/kmsg ] || mknod ${initdir}/dev/kmsg c 1 11
+        [ -c ${initdir}/dev/console ] || mknod ${initdir}/dev/console c 5 1
     fi
 fi
-
-mkdir -p "$initdir/.kernelmodseen"
 
 mods_to_load=""
 # check all our modules to see if they should be sourced.
 # This builds a list of modules that we will install next.
 for_each_module_dir check_module
 for_each_module_dir check_mount
+
+strstr "$mods_to_load" "fips" && export DRACUT_FIPS_MODE=1
 
 _isize=0 #initramfs size
 modules_loaded=" "
@@ -763,18 +770,17 @@ done
 unset moddir
 
 for i in $modules_loaded; do
+    mkdir -p $initdir/lib/dracut
     echo "$i" >> $initdir/lib/dracut/modules.txt
 done
 
 dinfo "*** Including modules done ***"
 
 ## final stuff that has to happen
-
-# generate module dependencies for the initrd
-if [[ -d $initdir/lib/modules/$kernel ]] && \
-    ! depmod -a -b "$initdir" $kernel; then
-    dfatal "\"depmod -a $kernel\" failed."
-    exit 1
+if [[ $no_kernel != yes ]]; then
+    dinfo "*** Installing kernel module dependencies and firmware ***"
+    dracut_kernel_post
+    dinfo "*** Installing kernel module dependencies and firmware done ***"
 fi
 
 while pop include_src src && pop include_target tgt; do
@@ -794,9 +800,9 @@ while pop include_src src && pop include_target tgt; do
                         mkdir -m 0755 -p "$s"
                         chmod --reference="$i" "$s"
                     fi
-                    cp -a -t "$s" "$i"/*
+                    cp --reflink=auto --sparse=auto -pfLr -t "$s" "$i"/*
                 else
-                    cp -a -t "$s" "$i"
+                    cp --reflink=auto --sparse=auto -pfLr -t "$s" "$i"
                 fi
             done
         fi
@@ -804,10 +810,7 @@ while pop include_src src && pop include_target tgt; do
 done
 
 if [[ $kernel_only != yes ]]; then
-    for item in $install_items; do
-        dracut_install "$item"
-    done
-    unset item
+    (( ${#install_items[@]} > 0 )) && dracut_install  ${install_items[@]}
 
     while pop fstab_lines line; do
         echo "$line 0 0" >> "${initdir}/etc/fstab"
@@ -816,6 +819,15 @@ if [[ $kernel_only != yes ]]; then
     for f in $add_fstab; do
         cat $f >> "${initdir}/etc/fstab"
     done
+
+    if [[ $DRACUT_RESOLVE_LAZY ]] && [[ -x /usr/bin/dracut-install ]]; then
+        dinfo "*** Resolving executable dependencies ***"
+        find "$initdir" -type f \
+            '(' -perm -0100 -or -perm -0010 -or -perm -0001 ')' \
+            -not -path '*.ko' -print0 \
+        | xargs -0 dracut-install ${initdir+-D "$initdir"} -R ${DRACUT_FIPS_MODE+-H}
+        dinfo "*** Resolving executable dependencies done***"
+    fi
 
     # make sure that library links are correct and up to date
     for f in /etc/ld.so.conf /etc/ld.so.conf.d/*; do
@@ -830,9 +842,6 @@ if [[ $kernel_only != yes ]]; then
     fi
 fi
 
-rm -fr "$initdir/.kernelmodseen"
-
-
 if (($maxloglvl >= 5)); then
     ddebug "Listing sizes of included files:"
     du -c "$initdir" | sort -n | ddebug
@@ -840,7 +849,7 @@ fi
 
 # strip binaries
 if [[ $do_strip = yes ]] ; then
-    for p in strip grep find; do
+    for p in strip xargs find; do
         if ! type -P $p >/dev/null; then
             derror "Could not find '$p'. You should run $0 with '--nostrip'."
             do_strip=no
@@ -848,36 +857,43 @@ if [[ $do_strip = yes ]] ; then
     done
 fi
 
-if [[ $do_strip = yes ]] ; then
-    for f in $(find "$initdir" -type f \
-        \( -perm -0100 -or -perm -0010 -or -perm -0001 \
-           -or -path '*/lib/modules/*.ko' \) ); do
-        dinfo "Stripping $f"
-        strip -g "$f" 2>/dev/null|| :
-    done
-fi
-
-type hardlink &>/dev/null && {
-    hardlink "$initdir" 2>&1
-}
-
 if strstr "$modules_loaded" " fips " && command -v prelink >/dev/null; then
+    dinfo "*** pre-unlinking files ***"
     for dir in "$initdir/bin" \
        "$initdir/sbin" \
        "$initdir/usr/bin" \
        "$initdir/usr/sbin"; do
         [[ -L "$dir" ]] && continue
         for i in "$dir"/*; do
+            [[ -L $i ]] && continue
             [[ -x $i ]] && prelink -u $i &>/dev/null
         done
     done
+    dinfo "*** pre-unlinking files done ***"
 fi
 
+if [[ $do_strip = yes ]] ; then
+    dinfo "*** Stripping files ***"
+    find "$initdir" -type f \
+        '(' -perm -0100 -or -perm -0010 -or -perm -0001 \
+        -or -path '*/lib/modules/*.ko' ')' -print0 \
+        | xargs -0 strip -g 2>/dev/null
+    dinfo "*** Stripping files done ***"
+fi
+
+type hardlink &>/dev/null && {
+    dinfo "*** hardlinking files ***"
+    hardlink "$initdir" 2>&1
+    dinfo "*** hardlinking files done ***"
+}
+
+dinfo "*** Creating image file ***"
 if ! ( cd "$initdir"; find . |cpio -R 0:0 -H newc -o --quiet| \
     $compress > "$outfile"; ); then
     dfatal "dracut: creation of $outfile failed"
     exit 1
 fi
+dinfo "*** Creating image file done ***"
 
 dinfo "Wrote $outfile:"
 dinfo "$(ls -l "$outfile")"
