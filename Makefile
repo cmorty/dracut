@@ -1,4 +1,4 @@
-VERSION=0.5
+VERSION=0.6
 GITVERSION=$(shell [ -d .git ] && git rev-list  --abbrev-commit  -n 1 HEAD  |cut -b 1-8)
 
 prefix = /usr
@@ -65,3 +65,12 @@ check: all
 testimage: all
 	./dracut -l -a debug -f test-$(shell uname -r).img $(shell uname -r)
 	@echo wrote  test-$(shell uname -r).img 
+
+testimages: all
+	./dracut -l -a debug --kernel-only -f test-kernel-$(shell uname -r).img $(shell uname -r)
+	@echo wrote  test-$(shell uname -r).img 
+	./dracut -l -a debug --no-kernel -f test-dracut.img $(shell uname -r)
+	@echo wrote  test-dracut.img 
+	
+	
+
