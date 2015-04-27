@@ -23,14 +23,16 @@ lvm pvcreate -ff  -y /dev/mapper/dracut_crypt_test && \
 lvm vgcreate dracut /dev/mapper/dracut_crypt_test && \
 lvm lvcreate -l 100%FREE -n root dracut && \
 lvm vgchange -ay && \
-mke2fs /dev/dracut/root && \
+mke2fs -L root /dev/dracut/root && \
 mkdir -p /sysroot && \
 mount /dev/dracut/root /sysroot && \
 cp -a -t /sysroot /source/* && \
 umount /sysroot && \
 lvm lvchange -a n /dev/dracut/root && \
 cryptsetup luksClose /dev/mapper/dracut_crypt_test && \
+{ mdadm -W /dev/md0 || : ;} && \
 mdadm /dev/md0 --fail /dev/sda2 --remove /dev/sda2 && \
+{ mdadm -W /dev/md0 || : ;} && \
 {
 /sbin/mdadm --detail --export /dev/md0 > /tmp/mduuid ;
 . /tmp/mduuid;

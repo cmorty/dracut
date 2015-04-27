@@ -1,4 +1,4 @@
-VERSION=0.9
+VERSION=002
 GITVERSION=$(shell [ -d .git ] && git rev-list  --abbrev-commit  -n 1 HEAD  |cut -b 1-8)
 
 prefix = /usr
@@ -54,7 +54,12 @@ rpm: clean dracut-$(VERSION).tar.bz2
 	rm -fr BUILD BUILDROOT
 
 gitrpm: dracut-$(VERSION)-$(GITVERSION).tar.bz2
-	rpmbuild --define "_topdir $$PWD" --define "_sourcedir $$PWD" --define "_specdir $$PWD" --define "_srcrpmdir $$PWD" --define "_rpmdir $$PWD" --define "gittag $(GITVERSION)" -ba dracut.spec 
+	echo "%define gittag $(GITVERSION)" > dracut.spec.git
+	cat dracut.spec >> dracut.spec.git
+	mv dracut.spec dracut.spec.bak
+	mv dracut.spec.git dracut.spec
+	rpmbuild --define "_topdir $$PWD" --define "_sourcedir $$PWD" --define "_specdir $$PWD" --define "_srcrpmdir $$PWD" --define "_rpmdir $$PWD" --define "gittag $(GITVERSION)" -ba dracut.spec
+	mv dracut.spec.bak dracut.spec
 	rm -fr BUILD BUILDROOT
 
 check: all
@@ -73,5 +78,8 @@ testimages: all
 	./dracut -l -a debug --no-kernel -f test-dracut.img $(shell uname -r)
 	@echo wrote  test-dracut.img 
 	
+hostimage: all
+	./dracut -H -l -a debug -f test-$(shell uname -r).img $(shell uname -r)
+	@echo wrote  test-$(shell uname -r).img 
 	
 

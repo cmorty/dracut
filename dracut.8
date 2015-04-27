@@ -28,7 +28,9 @@ omit a space-separated list of dracut modules.
 add a space-separated list of dracut modules.
 .TP
 .BR \-d ", " \-\-drivers " \fILIST\fR"
-specify a space-separated list of kernel modules to include in the initramfs.
+specify a space-separated list of kernel modules to exclusively include in the initramfs.
+.BR \-\-add-drivers " \fILIST\fR"
+specify a space-separated list of kernel modules to add to the initramfs.
 .TP
 .BR \-k ", " \-\-kmoddir " \fI{DIR}\fR   
 specify the directory, where to look for kernel modules
@@ -41,6 +43,12 @@ only install kernel drivers and firmware files
 .TP
 .BR \-\-no-kernel
 do not install kernel drivers and firmware files
+.TP
+.BR \-\-mdadmconf
+include local /etc/mdadm.conf
+.TP
+.BR \-\-nomdadmconf
+do not include local /etc/mdadm.conf
 .TP
 .BR \-\-strip
 strip binaries in the initramfs (default)
@@ -95,7 +103,10 @@ root filesystem.
 .B root=<path to blockdevice>
 specify e.g. \fI/dev/sda1\fR or
 \fI/dev/disk/by-path/pci-0000:00:1f.1-scsi-0:0:1:0-part1\fR
-
+.B rootfstype=<filesystem type>
+"auto" if not specified, e.g. \fIrootfstype=ext3\fR
+.B rootflags=<mount options>
+specify additional mount options for the root filesystem
 .SH I18N
 e.g. LANG=en_US.UTF-8 SYSFONT=latarcyrheb-sun16 KEYTABLE=de-latin1-nodeadkeys
 .TP
@@ -116,11 +127,6 @@ will be written to /etc/sysconfig/i18n in the initramfs
 .TP
 .B LANG=<locale>
 will be written to /etc/sysconfig/i18n in the initramfs
-
-.SH Bootsplash - plymouth
-.TP
-.B rd_plytheme=<theme name>
-specify the plymouth bootsplash theme (fallback is text)
 
 .SH LVM
 .TP
@@ -145,6 +151,9 @@ disable MD RAID detection
 .TP
 .B rd_NO_MDIMSM
 no MD RAID for imsm/isw raids, use dmraid instead
+.TP
+.B rd_NO_MDADMCONF
+ignore mdadm.conf included in initramfs
 .TP
 .B rd_MD_UUID=<md uuid>
 only activate the raid sets with the given UUID
@@ -219,6 +228,13 @@ e.g.
 .B root=??? iscsi_firmware
 will read the iscsi parameter from the BIOS firmware
 
+.SH FCoE
+.TP
+.B netroot=fcoe:<interface|MAC>:<dcb|nodcb>
+Try to connect to a FCoE SAN through the NIC specified by <interface> or <MAC>,
+for the second argument, currently only nodcb is supported. Note letters in
+the MAC-address must be lowercase!
+
 .SH NBD
 .TP
 .B root=nbd:<server>:<port>[:<fstype>][:<mountopts>]
@@ -241,6 +257,18 @@ get ip from dhcp server on a specific interface
 .TP
 .B ip=<client-IP-number>:[<server-id>]:<gateway-IP-number>:<netmask>:<client-hostname>:<interface>:{none|off}
 explicit network configuration
+
+.SH Plymouth Boot Splash
+.TP
+.B rd_NO_PLYMOUTH
+do not start plymouth. This will not work with encrypted partitions.
+
+.TP
+.B ifname=<interface>:<MAC>
+Assign network device name <interface> (ie eth0) to the NIC with MAC <MAC>.
+Note letters in the MAC-address must be lowercase!
+Note that if you use this option you \fBmust\fR specify an ifname= argument
+for all interfaces used in ip= or fcoe= arguments
 
 .SH Misc
 .TP

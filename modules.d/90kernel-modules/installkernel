@@ -1,18 +1,23 @@
 #!/bin/bash
-if [ -z "$drivers" ]; then
-  drivers="sd_mod =fs"
-  # Include block controller drivers
-  blockfuncs='ata_scsi_ioctl|scsi_add_host|blk_init_queue|register_mtd_blktrans|scsi_esp_register|register_virtio_device'
-  for modname in $(find "$srcmods/kernel/drivers" -name '*.ko'); do
-    if nm -uPA $modname | egrep -q "$blockfuncs"; then
-      drivers="${drivers} $modname"
+if [[ -z $drivers ]]; then
+    block_module_test() {
+	local blockfuncs='ata_scsi_ioctl|scsi_add_host|blk_init_queue|register_mtd_blktrans|scsi_esp_register|register_virtio_device'
+
+	 nm -uPA "$1" | egrep -q "$blockfuncs"
+    }
+    instmods pcmcia sd_mod $(filter_kernel_modules block_module_test) "=drivers/pcmcia"
+    # if not on hostonly mode, install all known filesystems.
+    if [[ $hostonly = '' ]]; then
+	instmods '=fs'
+    else
+	instmods $(get_fs_type "/dev/block/$(find_root_block_device)")
     fi
-  done
-  instmods $drivers
-  # hardcoded list of exceptions
-  rm -fr ${initdir}/lib/modules/*/kernel/fs/ocfs2
+    # hardcoded list of exceptions
+    rm -fr ${initdir}/lib/modules/*/kernel/fs/ocfs2
 else
   instmods $drivers
 fi
 
+[[ $add_drivers ]] && instmods $add_drivers
 
+instmods scsi_wait_scan

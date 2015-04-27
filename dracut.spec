@@ -5,14 +5,14 @@
 %endif
 
 %if %{defined gittag}
-%define rdist 1.git%{gittag}%{?dist}
+%define rdist .git%{gittag}%{?dist}
 %define dashgittag -%{gittag}
 %else
 %define rdist %{?dist}
 %endif
 
 Name: dracut
-Version: 0.9
+Version: 002
 Release: 1%{?rdist}
 Summary: Initramfs generator using udev
 Group: System Environment/Base		
@@ -40,13 +40,11 @@ Requires: filesystem >= 2.1.0, cpio, device-mapper, initscripts >= 8.63-1
 Requires: e2fsprogs >= 1.38-12, libselinux, libsepol, coreutils
 Requires: mdadm, elfutils-libelf, plymouth >= 0.7.0
 Requires: cryptsetup-luks
-Requires: bridge-utils
 Requires: file
 Requires: bzip2
-%ifnarch s390 s390x
 Requires: dmraid
 Requires: kbd
-%endif
+Requires: plymouth-scripts
 
 %if ! 0%{?with_switch_root}
 Requires: util-linux-ng >= 2.16
@@ -56,19 +54,28 @@ BuildArch: noarch
 %description
 dracut is a new, event-driven initramfs infrastructure based around udev.
 
-%package generic
-Summary: Metapackage to build a generic initramfs with dracut
+%package network
+Summary: dracut modules to build a dracut initramfs with network support
 Requires: %{name} = %{version}-%{release}
 Requires: rpcbind nfs-utils 
 Requires: iscsi-initiator-utils
 Requires: nbd
 Requires: net-tools iproute
-Requires: plymouth-system-theme plymouth-theme-charge plymouth-theme-solar
-Requires: plymouth-theme-fade-in plymouth-theme-spinfinity
+Requires: bridge-utils
+
+%description network
+This package requires everything which is needed to build a generic
+all purpose initramfs with network support with dracut.
+
+%package generic
+Summary: Metapackage to build a generic initramfs with dracut
+Requires: %{name} = %{version}-%{release}
+Requires: %{name}-network = %{version}-%{release}
 
 %description generic
 This package requires everything which is needed to build a generic
 all purpose initramfs with dracut.
+
 
 %package kernel
 Summary: Metapackage to build generic initramfs with dracut with only kernel modules
@@ -99,10 +106,12 @@ This package contains tools to assemble the local initrd and host configuration.
 %build
 make
 
-
 %install
 rm -rf $RPM_BUILD_ROOT
-make install DESTDIR=$RPM_BUILD_ROOT sbindir=/sbin sysconfdir=/etc mandir=%{_mandir}
+make install DESTDIR=$RPM_BUILD_ROOT sbindir=/sbin \
+     sysconfdir=/etc mandir=%{_mandir}
+
+echo %{name}-%{version}-%{release} > $RPM_BUILD_ROOT/%{_datadir}/dracut/modules.d/10rpmversion/dracut-version
 
 %if ! 0%{?with_switch_root}
 rm -f $RPM_BUILD_ROOT/sbin/switch_root
@@ -116,28 +125,54 @@ rm -rf $RPM_BUILD_ROOT
 
 %files
 %defattr(-,root,root,0755)
-%doc README HACKING TODO COPYING AUTHORS
+%doc README HACKING TODO COPYING AUTHORS NEWS
 /sbin/dracut
 %if 0%{?with_switch_root}
 /sbin/switch_root
 %endif
 %dir %{_datadir}/dracut
 %{_datadir}/dracut/dracut-functions
-%{_datadir}/dracut/modules.d
 %config(noreplace) /etc/dracut.conf
 %{_mandir}/man8/dracut.8*
+%{_datadir}/dracut/modules.d/00dash
+%{_datadir}/dracut/modules.d/10redhat-i18n
+%{_datadir}/dracut/modules.d/10rpmversion
+%{_datadir}/dracut/modules.d/50plymouth
+%{_datadir}/dracut/modules.d/90crypt
+%{_datadir}/dracut/modules.d/90dmraid
+%{_datadir}/dracut/modules.d/90dmsquash-live
+%{_datadir}/dracut/modules.d/90kernel-modules
+%{_datadir}/dracut/modules.d/90lvm
+%{_datadir}/dracut/modules.d/90mdraid
+%{_datadir}/dracut/modules.d/95debug
+%{_datadir}/dracut/modules.d/95resume
+%{_datadir}/dracut/modules.d/95rootfs-block
+%{_datadir}/dracut/modules.d/95s390
+%{_datadir}/dracut/modules.d/95terminfo
+%{_datadir}/dracut/modules.d/95udev-rules
+%{_datadir}/dracut/modules.d/95udev-rules.ub810
+%{_datadir}/dracut/modules.d/98syslog
+%{_datadir}/dracut/modules.d/99base
 
-%files generic
+%files network
 %defattr(-,root,root,0755)
-%doc README.generic
+%{_datadir}/dracut/modules.d/40network
+%{_datadir}/dracut/modules.d/95fcoe
+%{_datadir}/dracut/modules.d/95iscsi
+%{_datadir}/dracut/modules.d/95nbd
+%{_datadir}/dracut/modules.d/95nfs
 
 %files kernel 
 %defattr(-,root,root,0755)
 %doc README.kernel
 
+%files generic
+%defattr(-,root,root,0755)
+%doc README.generic
+
 %files tools 
 %defattr(-,root,root,0755)
-%doc COPYING
+%doc COPYING NEWS
 /sbin/dracut-gencmdline
 /sbin/dracut-catimages
 %dir /boot/dracut
@@ -145,33 +180,81 @@ rm -rf $RPM_BUILD_ROOT
 %dir /var/lib/dracut/overlay
 
 %changelog
+* Thu Sep 17 2009 Harald Hoyer <harald@redhat.com> 002-1
+- version 002
+- set correct PATH
+- workaround for broken mdmon implementation
+
+* Wed Sep 16 2009 Harald Hoyer <harald@redhat.com> 001-12
+- removed lvm/mdraid/dmraid lock files
+- add missing ifname= files
+
+* Wed Sep 16 2009 Harald Hoyer <harald@redhat.com> 001-11
+- generate dracut-version during rpm build time
+
+* Tue Sep 15 2009 Harald Hoyer <harald@redhat.com> 001-10
+- add ifname= argument for persistent netdev names
+- new /initqueue-finished to check if the main loop can be left
+- copy mdadm.conf if --mdadmconf set or mdadmconf in dracut.conf
+
+* Wed Sep 09 2009 Harald Hoyer <harald@redhat.com> 001-9
+- added Requires: plymouth-scripts
+
+* Wed Sep 09 2009 Harald Hoyer <harald@redhat.com> 001-8
+- plymouth: use plymouth-populate-initrd
+- add add_drivers for dracut and dracut.conf
+- do not mount /proc and /selinux manually in selinux-load-policy
+
+* Wed Sep 09 2009 Harald Hoyer <harald@redhat.com> 001-7
+- add scsi_wait_scan to be sure everything was scanned
+
+* Tue Sep 08 2009 Harald Hoyer <harald@redhat.com> 001-6
+- fixed several problems with md raid containers
+- fixed selinux policy loading
+
+* Tue Sep 08 2009 Harald Hoyer <harald@redhat.com> 001-5
+- patch does not honor file modes, fixed them manually
+
+* Mon Sep 07 2009 Harald Hoyer <harald@redhat.com> 001-4
+- fixed mdraid for IMSM
+
+* Mon Sep 07 2009 Harald Hoyer <harald@redhat.com> 001-3
+- fixed bug, which prevents installing 61-persistent-storage.rules (bug #520109)
+
+* Thu Sep 03 2009 Harald Hoyer <harald@redhat.com> 001-2
+- fixed missing grep for md
+- reorder cleanup
+
+* Wed Sep 02 2009 Harald Hoyer <harald@redhat.com> 001-1
+- version 001
+- see http://dracut.git.sourceforge.net/git/gitweb.cgi?p=dracut/dracut;a=blob_plain;f=NEWS
+
 * Fri Aug 14 2009 Harald Hoyer <harald@redhat.com> 0.9-1
 - version 0.9
-- see http://dracut.git.sourceforge.net/git/gitweb.cgi?p=dracut;a=blob_plain;f=NEWS
 
 * Thu Aug 06 2009 Harald Hoyer <harald@redhat.com> 0.8-1
 - version 0.8 
-- see http://dracut.git.sourceforge.net/git/gitweb.cgi?p=dracut;a=blob_plain;f=NEWS
+- see http://dracut.git.sourceforge.net/git/gitweb.cgi?p=dracut/dracut;a=blob_plain;f=NEWS
 
 * Fri Jul 24 2009 Harald Hoyer <harald@redhat.com> 0.7-1
 - version 0.7
-- see http://dracut.git.sourceforge.net/git/gitweb.cgi?p=dracut;a=blob_plain;f=NEWS
+- see http://dracut.git.sourceforge.net/git/gitweb.cgi?p=dracut/dracut;a=blob_plain;f=NEWS
 
 * Wed Jul 22 2009 Harald Hoyer <harald@redhat.com> 0.6-1
 - version 0.6
-- see http://dracut.git.sourceforge.net/git/gitweb.cgi?p=dracut;a=blob_plain;f=NEWS
+- see http://dracut.git.sourceforge.net/git/gitweb.cgi?p=dracut/dracut;a=blob_plain;f=NEWS
 
 * Fri Jul 17 2009 Harald Hoyer <harald@redhat.com> 0.5-1
 - version 0.5
-- see http://dracut.git.sourceforge.net/git/gitweb.cgi?p=dracut;a=blob_plain;f=NEWS
+- see http://dracut.git.sourceforge.net/git/gitweb.cgi?p=dracut/dracut;a=blob_plain;f=NEWS
 
 * Sat Jul 04 2009 Harald Hoyer <harald@redhat.com> 0.4-1
 - version 0.4
-- see http://dracut.git.sourceforge.net/git/gitweb.cgi?p=dracut;a=blob_plain;f=NEWS
+- see http://dracut.git.sourceforge.net/git/gitweb.cgi?p=dracut/dracut;a=blob_plain;f=NEWS
 
 * Thu Jul 02 2009 Harald Hoyer <harald@redhat.com> 0.3-1
 - version 0.3
-- see http://dracut.git.sourceforge.net/git/gitweb.cgi?p=dracut;a=blob_plain;f=NEWS
+- see http://dracut.git.sourceforge.net/git/gitweb.cgi?p=dracut/dracut;a=blob_plain;f=NEWS
 
 * Wed Jul 01 2009 Harald Hoyer <harald@redhat.com> 0.2-1
 - version 0.2

@@ -4,11 +4,22 @@
 # in trying to support it in the initramfs.
 which dmraid >/dev/null 2>&1 || exit 1
 
-# Hostonly checking should really fail if the root device is not on a 
-# dmraid volume.  I am lazy.  Therefore, fail the hostonly check only
-# if we are not using dmraid right now.
-if [[ $1 = -h ]]; then
-    dmraid -r | grep -q ok || exit 1
-fi
+. $dracutfunctions
+[[ $debug ]] && set -x
+
+is_dmraid() { get_fs_type /dev/block/$1 |grep -v linux_raid_member | \
+    grep -q _raid_member; }
+
+[[ $1 = '-h' ]] && {
+    rootdev=$(find_root_block_device)
+    if [[ $rootdev ]]; then
+	# root lives on a block device, so we can be more precise about 
+	# hostonly checking
+	check_block_and_slaves is_dmraid "$rootdev" || exit 1
+    else
+	# root is not on a block device, use the shotgun approach
+	dmraid -r | grep -q ok || exit 1
+    fi
+}
 
 exit 0

@@ -1,3 +1,41 @@
+dracut-002
+==========
+- add ifname= argument for persistent netdev names
+- new /initqueue-finished to check if the main loop can be left
+- copy mdadm.conf if --mdadmconf set or mdadmconf in dracut.conf
+- plymouth: use plymouth-populate-initrd
+- add add_drivers for dracut and dracut.conf
+- add modprobe scsi_wait_scan to be sure everything was scanned
+- fix for several problems with md raid containers
+- fix for selinux policy loading
+- fix for mdraid for IMSM
+- fix for bug, which prevents installing 61-persistent-storage.rules (bug #520109)
+- fix for missing grep for md
+
+dracut-001
+==========
+- better --hostonly checks
+- better lvm/mdraid/dmraid handling
+- fcoe booting support
+    Supported cmdline formats:
+    fcoe=<networkdevice>:<dcb|nodcb>
+    fcoe=<macaddress>:<dcb|nodcb>
+    
+    Note currently only nodcb is supported, the dcb option is reserved for
+    future use.
+    
+    Note letters in the macaddress must be lowercase!
+    
+    Examples:
+    fcoe=eth0:nodcb
+    fcoe=4A:3F:4C:04:F8:D7:nodcb
+
+- Syslog support for dracut   
+    This module provides syslog functionality in the initrd.
+    This is especially interesting when complex configuration being
+    used to provide access to the device the rootfs resides on.
+
+
 dracut-0.9
 ==========
 - let plymouth attach to the terminal (nice text output now)

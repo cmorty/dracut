@@ -1,7 +1,7 @@
 getarg() {
     local o line
     if [ -z "$CMDLINE" ]; then
-	[ -f /etc/cmdline ] && read CMDLINE_ETC </etc/cmdline;
+	[ -e /etc/cmdline ] && read CMDLINE_ETC </etc/cmdline;
 	read CMDLINE </proc/cmdline;
 	CMDLINE="$CMDLINE $CMDLINE_ETC"
     fi
@@ -15,7 +15,7 @@ getarg() {
 getargs() {
     local o line found
     if [ -z "$CMDLINE" ]; then
-	[ -f /etc/cmdline ] && read CMDLINE_ETC </etc/cmdline;
+	[ -e /etc/cmdline ] && read CMDLINE_ETC </etc/cmdline;
 	read CMDLINE </proc/cmdline;
 	CMDLINE="$CMDLINE $CMDLINE_ETC"
     fi
@@ -33,13 +33,19 @@ getargs() {
 source_all() {
     local f
     [ "$1" ] && [  -d "/$1" ] || return
-    for f in "/$1"/*.sh; do [ -f "$f" ] && . "$f"; done
+    for f in "/$1"/*.sh; do [ -e "$f" ] && . "$f"; done
+}
+
+check_finished() {
+    local f
+    for f in /initqueue-finished/*.sh; do { [ -e "$f" ] && ( . "$f" ) ; } || return 1 ; done
+    return 0
 }
 
 source_conf() {
     local f
     [ "$1" ] && [  -d "/$1" ] || return
-    for f in "/$1"/*.conf; do [ -f "$f" ] && . "$f"; done
+    for f in "/$1"/*.conf; do [ -e "$f" ] && . "$f"; done
 }
 
 die() {
@@ -107,3 +113,30 @@ incol2() {
     done < $file
     return 1
 }
+
+udevsettle() {
+    [ -z "$UDEVVERSION" ] && UDEVVERSION=$(udevadm --version)
+
+    if [ $UDEVVERSION -ge 143 ]; then
+        udevadm settle --exit-if-exists=/initqueue/work $settle_exit_if_exists
+    else
+        udevadm settle --timeout=30
+    fi
+}
+
+udevproperty() {
+    [ -z "$UDEVVERSION" ] && UDEVVERSION=$(udevadm --version)
+
+    if [ $UDEVVERSION -ge 143 ]; then
+	for i in "$@"; do udevadm control --property=$i; done
+    else
+	for i in "$@"; do udevadm control --env=$i; done
+    fi
+}
+
+if [ -e /proc/cmdline ]; then
+	if getarg rdinitdebug; then
+	    set -x
+	fi
+fi
+

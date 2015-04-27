@@ -106,48 +106,42 @@ getarg 'rdbreak=initqueue' && emergency_shell "Break before initqueue"
 
 i=0
 while :; do
-    # bail out, if we have mounted the root filesystem
-    [ -d "$NEWROOT/proc" ] && break;
 
-    # check if root can be mounted
-    [ -e /dev/root ] && break;
-
-    if [ $UDEVVERSION -ge 143 ]; then
-        udevadm settle --exit-if-exists=/initqueue/work --exit-if-exists=/dev/root 
-    else
-        udevadm settle --timeout=30
-    fi
-
-    # bail out, if we have mounted the root filesystem
-    [ -d "$NEWROOT/proc" ] && break;
-    # check if root can be mounted
-    [ -e /dev/root ] && break;
+    check_finished && break
  
-    unset queuetriggered
+    udevsettle
+
+    check_finished && break
+
     if [ -f /initqueue/work ]; then
         rm /initqueue/work
-	queuetriggered="1"
     fi
     	
     for job in /initqueue/*.sh; do
 	[ -e "$job" ] || break
         job=$job . $job
-
-        # bail out, if we have mounted the root filesystem
-        [ -d "$NEWROOT/proc" ] && break;
-        # check if root can be mounted
-        [ -e /dev/root ] && break;
+        check_finished && break 2
     done
 
-    [ -n "$queuetriggered" ] && continue
+    $UDEV_QUEUE_EMPTY >/dev/null 2>&1 || continue
 
-    if $UDEV_QUEUE_EMPTY >/dev/null 2>&1; then
-        # no more udev jobs
-        sleep 0.5
-        i=$(($i+1))
-        [ $i -gt 20 ] \
-            && { flock -s 9 ; emergency_shell "No root device found"; } 9>/.console_lock
-    fi
+    modprobe scsi_wait_scan && rmmod scsi_wait_scan
+
+    $UDEV_QUEUE_EMPTY >/dev/null 2>&1 || continue
+
+    for job in /initqueue-settled/*.sh; do
+        [ -e "$job" ] || break
+        job=$job . $job
+        check_finished && break 2
+    done
+
+    $UDEV_QUEUE_EMPTY >/dev/null 2>&1 || continue
+
+    # no more udev jobs and queues empty.
+    sleep 0.5
+    i=$(($i+1))
+    [ $i -gt 20 ] \
+        && { flock -s 9 ; emergency_shell "No root device found"; } 9>/.console_lock
 done
 unset job
 unset queuetriggered
@@ -174,6 +168,11 @@ while :; do
         && { flock -s 9 ; emergency_shell "Can't mount root filesystem"; } 9>/.console_lock
 done
 
+{
+    echo -n "Mounted root filesystem "
+    while read dev mp rest; do [ "$mp" = "$NEWROOT" ] && echo $dev; done < /proc/mounts 
+} | vinfo
+
 # pre pivot scripts are sourced just before we switch over to the new root.
 getarg 'rdbreak=pre-pivot' && emergency_shell "Break pre-pivot"
 source_all pre-pivot
@@ -183,6 +182,7 @@ source_all pre-pivot
 for i in "$(getarg init=)" /sbin/init /etc/init /init /bin/sh; do
     [ -f "$NEWROOT$i" -a -x "$NEWROOT$i" ] && { INIT="$i"; break; }
 done
+
 [ "$INIT" ] || {
     echo "Cannot find init!"
     echo "Please check to make sure you passed a valid root filesystem!"
@@ -208,28 +208,41 @@ for i in $(export -p); do
 done
 
 initargs=""
-initrdargs="$initrdargs console BOOT_IMAGE rdbreak rdinitdebug rdudevinfo rdudevdebug rdnetdebug rdcopystate rdshell"
 
-for x in "$@"; do
-    for s in $initrdargs; do       
-	[ "${x%%=*}" = $s ] && continue 2
+if getarg init= >/dev/null ; then
+    ignoreargs="console BOOT_IMAGE"
+    # only pass arguments after init= to the init
+    read CLINE </proc/cmdline
+    CLINE=${CLINE#*init=}
+    set $CLINE
+    for x in "$@"; do
+        for s in $ignoreargs; do       
+            [ "${x%%=*}" = $s ] && continue 2
+        done
+        initargs="$initargs $x"
     done
-    initargs="$initargs $x"
-done
-
-# Copy state
-mkdir /dev/.initramfs/
-if getarg rdcopystate; then
-    cp /tmp/* /dev/.initramfs/ >/dev/null 2>&1
-else
-    cp /tmp/net.* /dev/.initramfs/ >/dev/null 2>&1
-    cp /tmp/resolv.conf /dev/.initramfs/ >/dev/null 2>&1
-    cp -a /tmp/ifcfg/ /dev/.initramfs/ >/dev/null 2>&1
+    unset CLINE
 fi
 
+# Prepare network opts for passing
+if [ -e /tmp/net.ifaces ]; then
+    mkdir /dev/.initramfs/
+    cp /tmp/net.* /dev/.initramfs/ >/dev/null 2>&1
+    mkdir -p /dev/.initramfs/state/etc/sysconfig/network-scripts/
+    cp /tmp/resolv.conf /dev/.initramfs/state/etc/ >/dev/null 2>&1
+    echo "files /etc/sysconfig/network-scripts" > /dev/.initramfs/rwtab
+    cp -a /tmp/ifcfg/* /dev/.initramfs/state/etc/sysconfig/network-scripts/ >/dev/null 2>&1
+fi
+
+# Debug: Copy state
+if getarg rdcopystate; then
+    cp /tmp/* /dev/.initramfs/ >/dev/null 2>&1
+fi
+
+info "Switching root"
+
 exec switch_root "$NEWROOT" "$INIT" $initargs || {
-    # davej doesn't like initrd bugs
-    echo "Something went very badly wrong in the initrd.  Please "
-    echo "file a bug against mkinitrd."
+    echo "Something went very badly wrong in the initramfs.  Please "
+    echo "file a bug against dracut."
     emergency_shell
 }

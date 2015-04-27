@@ -21,22 +21,11 @@
 
 
 function error() {
-    local NONL=""
-    if [ "$1" == "-n" ]; then
-        NONL="-n"
-        shift
-    fi
-    echo $NONL "$@" >&2
+    echo "$@" >&2
 }
 
 function vecho() {
-    return
-    local NONL=""
-    if [ "$1" == "-n" ]; then
-        NONL="-n"
-        shift
-    fi
-    is_verbose && echo $NONL "$@"
+    is_verbose && echo "$@"
 }
 
 # module dep finding and installation functions
@@ -52,17 +41,10 @@ moduledep() {
     [ -n "$deps" ] && vecho ": $deps" || vecho
 }
 
-if [ $UID != 0 ]; then
-    error "$0 must be run as root."
-    exit 1
-fi
-
 export MALLOC_PERTURB_=204
 
 PATH=/sbin:/usr/sbin:/bin:/usr/bin:$PATH
 export PATH
-
-. /etc/rc.d/init.d/functions
 
 # Set the umask. For iscsi, the initrd can contain plaintext
 # password (chap secret), so only allow read by owner.

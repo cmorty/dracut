@@ -34,7 +34,9 @@ Creates initial ramdisk images for preloading modules
   -o, --omit [LIST]     Omit a space-separated list of dracut modules.
   -a, --add [LIST]      Add a space-separated list of dracut modules.
   -d, --drivers [LIST]  Specify a space-separated list of kernel modules to
-                         include in the initramfs.
+                        exclusively include in the initramfs.
+  --add-drivers [LIST]  Specify a space-separated list of kernel 
+                        modules to add to the initramfs.
   -k, --kmoddir [DIR]   Specify the directory, where to look for kernel 
                         modules
   --fwdir [DIR]         Specify additional directories, where to look for 
@@ -43,6 +45,8 @@ Creates initial ramdisk images for preloading modules
   --no-kernel           Do not install kernel drivers and firmware files
   --strip               Strip binaries in the initramfs (default)
   --nostrip             Do not strip binaries in the initramfs
+  --mdadmconf           Include local /etc/mdadm.conf
+  --nomdadmconf         Do not include local /etc/mdadm.conf
   -h, --help            This message
   --debug               Output debug information of the build process
   -v, --verbose         Verbose output during the build process
@@ -69,18 +73,21 @@ while (($# > 0)); do
 	-o|--omit) omit_dracutmodules_l="$2"; shift;;
 	-a|--add) add_dracutmodules_l="$2"; shift;;
 	-d|--drivers) drivers_l="$2"; shift;;
+	--add-drivers) add_drivers_l="$2"; shift;;
 	-k|--kmoddir) drivers_dir_l="$2"; shift;;
 	--fwdir) fw_dir_l="$2"; shift;;
 	--kernel-only) kernel_only="yes"; nokernel="no";;
 	--no-kernel) kernel_only="no"; no_kernel="yes";;
 	--strip) do_strip_l="yes";;
 	--nostrip) do_strip_l="no";;
+        --mdadmconf) mdadmconf_l="yes";;
+        --nomdadmconf) mdadmconf_l="no";;
 	-h|--help) usage; exit 1 ;;
 	--debug) debug="yes";;
 	-v|--verbose) beverbose="yes";;
 	-c|--conf) conffile="$2"; shift;;
 	-l|--local) allowlocal="yes" ;;
-	-H|--hostonly) hostonly="-h" ;;
+	-H|--hostonly) hostonly_l="yes" ;;
 	-i|--include) include_src="$2"; include_target="$3"; shift 2;;
 	-I|--install) install_items="$2"; shift;;
 	-*) printf "\nUnknown option: %s\n\n" "$1" >&2; usage; exit 1;;
@@ -89,7 +96,8 @@ while (($# > 0)); do
     shift
 done
 
-PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+export PATH
 
 [[ $debug ]] && { 
     export PS4='${BASH_SOURCE}@${LINENO}(${FUNCNAME[0]}): ';
@@ -107,14 +115,21 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH
 [[ $omit_dracutmodules_l ]] && omit_dracutmodules=$omit_dracutmodules_l
 [[ $add_dracutmodules_l ]] && add_dracutmodules="$add_dracutmodules $add_dracutmodules_l"
 [[ $drivers_l ]] && drivers=$drivers_l
+[[ $add_drivers_l ]] && add_drivers=$add_drivers_l
 [[ $drivers_dir_l ]] && drivers_dir=$drivers_dir_l
 [[ $fw_dir_l ]] && fw_dir=$fw_dir_l
 [[ $do_strip_l ]] && do_strip=$do_strip_l
+[[ $hostonly_l ]] && hostonly=$hostonly_l
+[[ $mdadmconf_l ]] && mdadmconf=$mdadmconf_l
 [[ $dracutbasedir ]] || dracutbasedir=/usr/share/dracut
 [[ $fw_dir ]] || fw_dir=/lib/firmware
 [[ $do_strip ]] || do_strip=yes
+# eliminate IFS hackery when messing with fw_dir
+fw_dir=${fw_dir//:/ }
 
-[[ $allowlocal && -f "$(dirname $0)/dracut-functions" ]] && dsrc="$(dirname $0)" || dsrc=$dracutbasedir
+[[ $hostonly = yes ]] && hostonly="-h"
+
+[[ $allowlocal && -f "$(readlink -f $(dirname $0))/dracut-functions" ]] && dsrc="$(dirname $0)" || dsrc=$dracutbasedir
 
 if [[ -f $dsrc/dracut-functions ]]; then
    . $dsrc/dracut-functions
@@ -136,7 +151,7 @@ esac
 [[ $1 ]] && outfile=$(readlink -f $1) || outfile="/boot/initrd-$kernel.img"
 
 srcmods="/lib/modules/$kernel/"
-[ -n "$drivers_dir" ] && srcmods="$drivers_dir"
+[[ $drivers_dir ]] && srcmods="$drivers_dir"
 export srcmods
 
 if [[ -f $outfile && ! $force ]]; then
@@ -153,9 +168,10 @@ trap 'rm -rf "$initdir"' 0 # clean up after ourselves no matter how we die.
 chmod 755 "$initdir"
 
 export initdir hookdirs dsrc dracutmodules drivers \
-    fw_dir drivers_dir debug beverbose no_kernel kernel_only
+    fw_dir drivers_dir debug beverbose no_kernel kernel_only \
+    add_drivers mdadmconf
 
-if [[ "$kernel_only" != "yes" ]]; then
+if [[ $kernel_only != yes ]]; then
     # Create some directory structure first
     for d in bin sbin usr/bin usr/sbin usr/lib etc proc sys sysroot tmp dev/pts var/run; do 
 	mkdir -p "$initdir/$d"; 
@@ -170,11 +186,11 @@ check_modules
 for moddir in "$dsrc/modules.d"/[0-9][0-9]*; do
     mod=${moddir##*/}; mod=${mod#[0-9][0-9]}
     if strstr "$mods_to_load" " $mod "; then
-	if [[ "$kernel_only" = "yes" ]]; then
-	    [[ -x "$moddir/installkernel" ]] && . "$moddir/installkernel"
+	if [[ $kernel_only = yes ]]; then
+	    [[ -x $moddir/installkernel ]] && . "$moddir/installkernel"
 	else
 	    . "$moddir/install"
-	    if [[ "$no_kernel" != "yes" && -x "$moddir/installkernel" ]]; then
+	    if [[ $no_kernel != yes && -x $moddir/installkernel ]]; then
 		. "$moddir/installkernel"
 	    fi
 	fi
@@ -182,12 +198,11 @@ for moddir in "$dsrc/modules.d"/[0-9][0-9]*; do
     fi
 done
 unset moddir
-echo $mods_to_load
 
 ## final stuff that has to happen
 
 # generate module dependencies for the initrd
-if [ -d "$initdir/lib/modules/$kernel" ]; then
+if [[ -d $initdir/lib/modules/$kernel ]]; then
     if ! depmod -a -b "$initdir" $kernel; then
         echo "\"depmod -a $kernel\" failed."
         exit 1
@@ -207,10 +222,10 @@ for item in $install_items; do
 done
 unset item
 
-[[ "$beverbose" = "yes" ]] && (du -c "$initdir" | sort -n)
+[[ $beverbose = yes ]] && (du -c "$initdir" | sort -n)
 
 # strip binaries 
-if [ "$do_strip" = "yes" ] ; then
+if [[ $do_strip = yes ]] ; then
     for p in strip objdump sed grep find; do 
 	if ! which $p >/dev/null 2>&1; then
 	    derror "Could not find '$p'. You should run $0 with '--nostrip'."
@@ -219,7 +234,7 @@ if [ "$do_strip" = "yes" ] ; then
     done
 fi
 
-if [ "$do_strip" = "yes" ] ; then
+if [[ $do_strip = yes ]] ; then
     for f in $(find "$initdir" -type f \( -perm -0100 -or -perm -0010 -or -perm -0001 \) -exec file {} \; | 
 	grep -v ' shared object,' | 
 	sed -n -e 's/^\(.*\):[ 	]*ELF.*, not stripped/\1/p'); do
@@ -238,9 +253,9 @@ if [ "$do_strip" = "yes" ] ; then
     done
 fi
 
-( cd "$initdir"; find . |cpio -R 0:0 -H newc -o |gzip -9 > "$outfile"; )
+( cd "$initdir"; find . |cpio -R 0:0 -H newc -o --quiet |gzip -9 > "$outfile"; )
 
-[[ "$beverbose" = "yes" ]] && ls -lh "$outfile"
+[[ $beverbose = yes ]] && ls -lh "$outfile"
 
 exit 0
 
