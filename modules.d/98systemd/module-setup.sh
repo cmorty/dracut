@@ -18,7 +18,7 @@ depends() {
 }
 
 installkernel() {
-    instmods autofs4 ipv6
+    hostonly='' instmods autofs4 ipv6
     instmods -s efivarfs
 }
 
@@ -83,6 +83,7 @@ install() {
         $systemdsystemunitdir/systemd-udevd-kernel.socket \
         $systemdsystemunitdir/systemd-ask-password-plymouth.path \
         $systemdsystemunitdir/systemd-journald.socket \
+        $systemdsystemunitdir/systemd-journald-audit.socket \
         $systemdsystemunitdir/systemd-ask-password-console.service \
         $systemdsystemunitdir/systemd-modules-load.service \
         $systemdsystemunitdir/systemd-halt.service \
@@ -105,6 +106,7 @@ install() {
         $systemdsystemunitdir/sockets.target.wants/systemd-udevd-control.socket \
         $systemdsystemunitdir/sockets.target.wants/systemd-udevd-kernel.socket \
         $systemdsystemunitdir/sockets.target.wants/systemd-journald.socket \
+        $systemdsystemunitdir/sockets.target.wants/systemd-journald-audit.socket \
         $systemdsystemunitdir/sockets.target.wants/systemd-journald-dev-log.socket \
         $systemdsystemunitdir/sysinit.target.wants/systemd-udevd.service \
         $systemdsystemunitdir/sysinit.target.wants/systemd-udev-trigger.service \
@@ -122,6 +124,8 @@ install() {
         \
         $systemdsystemunitdir/slices.target \
         $systemdsystemunitdir/system.slice \
+        \
+        $tmpfilesdir/systemd.conf \
         \
         journalctl systemctl echo swapoff systemd-cgls systemd-tmpfiles
 
@@ -198,7 +202,12 @@ install() {
     inst_binary true
     ln_r $(type -P true) "/usr/bin/loginctl"
     ln_r $(type -P true) "/bin/loginctl"
-    inst_rules 70-uaccess.rules 71-seat.rules 73-seat-late.rules 99-systemd.rules
+    inst_rules \
+        70-uaccess.rules \
+        71-seat.rules \
+        73-seat-late.rules \
+        90-vconsole.rules \
+        99-systemd.rules
 
     for i in \
         emergency.target \
@@ -226,6 +235,9 @@ install() {
         inst_simple "$moddir/${i}" "$systemdsystemunitdir/${i}"
         ln_r "$systemdsystemunitdir/${i}" "$systemdsystemunitdir/initrd.target.wants/${i}"
     done
+
+    inst_simple "$moddir/dracut-tmpfiles.conf" "$tmpfilesdir/dracut-tmpfiles.conf"
+
 
     mkdir -p "$initdir/etc/systemd"
     # turn off RateLimit for journal

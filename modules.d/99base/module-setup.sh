@@ -15,7 +15,7 @@ depends() {
 install() {
     local _d
 
-    inst_multiple mount mknod mkdir sleep chroot \
+    inst_multiple mount mknod mkdir sleep chroot chown \
         sed ls flock cp mv dmesg rm ln rmmod mkfifo umount readlink setsid
     inst $(command -v modprobe) /sbin/modprobe
 
@@ -88,8 +88,10 @@ install() {
         echo VERSION_ID=$VERSION_ID
         echo PRETTY_NAME=\"$PRETTY_NAME\"
         echo ANSI_COLOR=\"$ANSI_COLOR\"
-    } > $initdir/etc/initrd-release
+    } > $initdir/usr/lib/initrd-release
     echo dracut-$DRACUT_VERSION > $initdir/lib/dracut/dracut-$DRACUT_VERSION
+    ln -sf ../usr/lib/initrd-release $initdir/etc/initrd-release
+    ln -sf initrd-release $initdir/usr/lib/os-release
     ln -sf initrd-release $initdir/etc/os-release
 
     ## save host_devs which we need bring up

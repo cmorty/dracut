@@ -13,7 +13,7 @@ test_run() {
 	-net none -kernel /boot/vmlinuz-$KVERSION \
 	-append "root=LABEL=root rw rd.retry=3 rd.info console=ttyS0,115200n81 selinux=0 $DEBUGFAIL" \
 	-initrd $TESTDIR/initramfs.testing
-    dd if=$DISKIMAGE bs=512 count=2 | grep -F -m 1 -q dracut-root-block-success $DISKIMAGE || return 1
+    dd if=$DISKIMAGE bs=512 count=4 skip=2048 | grep -F -m 1 -q dracut-root-block-success $DISKIMAGE || return 1
 }
 
 test_setup() {
@@ -69,6 +69,7 @@ test_setup() {
 	-m "dash btrfs udev-rules base rootfs-block fs-lib kernel-modules" \
 	-d "piix ide-gd_mod ata_piix btrfs sd_mod" \
         --nomdadmconf \
+        --no-hostonly-cmdline -N \
 	-f $TESTDIR/initramfs.makeroot $KVERSION || return 1
 
     rm -rf -- $TESTDIR/overlay
@@ -81,7 +82,7 @@ test_setup() {
 	-append "root=/dev/fakeroot rw quiet console=ttyS0,115200n81 selinux=0" \
 	-initrd $TESTDIR/initramfs.makeroot  || return 1
 
-    dd if=$DISKIMAGE bs=512 count=2 | grep -F -m 1 -q dracut-root-block-created || return 1
+    dd if=$DISKIMAGE bs=512 count=4 skip=2048 | grep -F -m 1 -q dracut-root-block-created || return 1
 
    (
         export initdir=$TESTDIR/overlay
@@ -94,6 +95,7 @@ test_setup() {
 	-o "plymouth network" \
 	-a "debug" \
 	-d "piix ide-gd_mod ata_piix btrfs sd_mod" \
+        --no-hostonly-cmdline -N \
 	-f $TESTDIR/initramfs.testing $KVERSION || return 1
 }
 

@@ -104,17 +104,7 @@ fi
 
 ldconfig_paths()
 {
-    local a i
-    declare -A a
-    for i in $(
-        ldconfig -pN 2>/dev/null | grep -F '=>' | grep -E -v '/(lib|lib64|usr/lib|usr/lib64)/[^/]*$' | while read a b c d; do
-            d=${d%/*}
-            printf "%s\n" "$d";
-        done
-    ); do
-        a["$i"]=1;
-    done;
-    printf "%s\n" ${!a[@]}
+    ldconfig -pN 2>/dev/null | grep -E -v '/(lib|lib64|usr/lib|usr/lib64)/[^/]*$' | sed -n 's,.* => \(.*\)/.*,\1,p' | sort | uniq
 }
 
 # Detect lib paths
@@ -176,7 +166,13 @@ srcmods="/lib/modules/$kernel/"
 }
 export srcmods
 
-if ! type dinfo >/dev/null 2>&1; then
+# is_func <command>
+# Check whether $1 is a function.
+is_func() {
+    [[ "$(type -t "$1")" = "function" ]]
+}
+
+if ! is_func dinfo >/dev/null 2>&1; then
     . "$dracutbasedir/dracut-logger.sh"
     dlog_init
 fi
@@ -207,12 +203,6 @@ dracut_module_included() {
 # $1 = path
 mksubdirs() {
     [[ -e ${1%/*} ]] || mkdir -m 0755 -p -- "${1%/*}"
-}
-
-# is_func <command>
-# Check whether $1 is a function.
-is_func() {
-    [[ "$(type -t "$1")" = "function" ]]
 }
 
 # Function prints global variables in format name=value line by line.
@@ -698,10 +688,12 @@ for_each_host_dev_and_slaves()
 # but you cannot create the logical volume without the volume group.
 # And the volume group might be bigger than the devices the LV needs.
 check_vol_slaves() {
-    local _lv _vg _pv
+    local _lv _vg _pv _dm
     for i in /dev/mapper/*; do
         [[ $i == /dev/mapper/control ]] && continue
         _lv=$(get_maj_min $i)
+        _dm=/sys/dev/block/$_lv/dm
+        [[ -f $_dm/uuid  && $(<$_dm/uuid) =~ LVM-* ]] || continue
         if [[ $_lv = $2 ]]; then
             _vg=$(lvm lvs --noheadings -o vg_name $i 2>/dev/null)
             # strip space
@@ -743,6 +735,8 @@ fi
 
 if ! [[ $DRACUT_INSTALL ]] && [[ -x $dracutbasedir/dracut-install ]]; then
     DRACUT_INSTALL=$dracutbasedir/dracut-install
+elif ! [[ $DRACUT_INSTALL ]] && [[ -x $dracutbasedir/install/dracut-install ]]; then
+    DRACUT_INSTALL=$dracutbasedir/install/dracut-install
 fi
 
 if ! [[ -x $DRACUT_INSTALL ]]; then
@@ -1457,7 +1451,7 @@ install_kmod_with_fw() {
 
     if [[ $omit_drivers ]]; then
         local _kmod=${1##*/}
-        _kmod=${_kmod%.ko}
+        _kmod=${_kmod%.ko*}
         _kmod=${_kmod/-/_}
         if [[ "$_kmod" =~ $omit_drivers ]]; then
             dinfo "Omitting driver $_kmod"
@@ -1471,7 +1465,7 @@ install_kmod_with_fw() {
 
     if [[ $silent_omit_drivers ]]; then
         local _kmod=${1##*/}
-        _kmod=${_kmod%.ko}
+        _kmod=${_kmod%.ko*}
         _kmod=${_kmod/-/_}
         [[ "$_kmod" =~ $silent_omit_drivers ]] && return 0
         [[ "${1##*/lib/modules/$kernel/}" =~ $silent_omit_drivers ]] && return 0
@@ -1595,7 +1589,7 @@ module_is_host_only() {
     local _mod=$1
     local _modenc a i _k _s _v _aliases
     _mod=${_mod##*/}
-    _mod=${_mod%.ko}
+    _mod=${_mod%.ko*}
     _modenc=${_mod//-/_}
 
     [[ " $add_drivers " == *\ ${_mod}\ * ]] && return 0
@@ -1685,11 +1679,18 @@ instmods() {
             --*) _mpargs+=" $_mod" ;;
             *)
                 _mod=${_mod##*/}
+                # Check for aliased modules
+                _modalias=$(modinfo -k $kernel -F filename $_mod 2> /dev/null)
+                _modalias=${_modalias%.ko*}
+                if [[ $_modalias ]] && [ "${_modalias##*/}" != "${_mod%.ko*}" ] ; then
+                    _mod=${_modalias##*/}
+                fi
+
                 # if we are already installed, skip this module and go on
                 # to the next one.
                 if [[ $DRACUT_KERNEL_LAZY_HASHDIR ]] && \
-                    [[ -f "$DRACUT_KERNEL_LAZY_HASHDIR/${_mod%.ko}.ko" ]]; then
-                    read _ret <"$DRACUT_KERNEL_LAZY_HASHDIR/${_mod%.ko}.ko"
+                    [[ -f "$DRACUT_KERNEL_LAZY_HASHDIR/${_mod%.ko*}" ]]; then
+                    read _ret <"$DRACUT_KERNEL_LAZY_HASHDIR/${_mod%.ko*}"
                     return $_ret
                 fi
 
@@ -1719,7 +1720,7 @@ instmods() {
                     ((_ret+=$?))
                 else
                     [[ $DRACUT_KERNEL_LAZY_HASHDIR ]] && \
-                        echo $_mod >> "$DRACUT_KERNEL_LAZY_HASHDIR/lazylist"
+                        echo ${_mod%.ko*} >> "$DRACUT_KERNEL_LAZY_HASHDIR/lazylist"
                 fi
                 ;;
         esac
@@ -1731,18 +1732,16 @@ instmods() {
         if (($# == 0)); then  # filenames from stdin
             while read _mod; do
                 inst1mod "${_mod%.ko*}" || {
-                    if [[ "$_check" == "yes" ]]; then
-                        [[ "$_silent" == "no" ]] && dfatal "Failed to install module $_mod"
-                        return 1
+                    if [[ "$_check" == "yes" ]] && [[ "$_silent" == "no" ]]; then
+                        dfatal "Failed to install module $_mod"
                     fi
                 }
             done
         fi
         while (($# > 0)); do  # filenames as arguments
             inst1mod ${1%.ko*} || {
-                if [[ "$_check" == "yes" ]]; then
-                    [[ "$_silent" == "no" ]] && dfatal "Failed to install module $1"
-                    return 1
+                if [[ "$_check" == "yes" ]] && [[ "$_silent" == "no" ]]; then
+                    dfatal "Failed to install module $1"
                 fi
             }
             shift

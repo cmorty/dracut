@@ -4,7 +4,7 @@
 installkernel() {
     if [[ -z $drivers ]]; then
         block_module_filter() {
-            local _blockfuncs='ahci_platform_get_resources|ata_scsi_ioctl|scsi_add_host|blk_cleanup_queue|register_mtd_blktrans|scsi_esp_register|register_virtio_device|usb_stor_disconnect|mmc_add_host|sdhci_pltfm_init'
+            local _blockfuncs='ahci_platform_get_resources|ata_scsi_ioctl|scsi_add_host|blk_cleanup_queue|register_mtd_blktrans|scsi_esp_register|register_virtio_device|usb_stor_disconnect|mmc_add_host|sdhci_add_host'
             # subfunctions inherit following FDs
             local _merge=8 _side2=9
             function bmf1() {
@@ -39,13 +39,12 @@ installkernel() {
             ehci-hcd ehci-pci ehci-platform \
             ohci-hcd ohci-pci \
             uhci-hcd \
-            xhci-hcd
+            xhci-hcd xhci-pci xhci-plat-hcd
 
-        instmods yenta_socket scsi_dh_rdac scsi_dh_emc \
+        instmods yenta_socket scsi_dh_rdac scsi_dh_emc scsi_dh_alua \
             atkbd i8042 usbhid hid-apple hid-sunplus hid-cherry hid-logitech \
             hid-logitech-dj hid-microsoft hid-lcpower firewire-ohci \
-            pcmcia usb_storage nvme hid-hyperv hv-vmbus \
-            sdhci_acpi hyperv-keyboard
+            pcmcia hid-hyperv hv-vmbus hyperv-keyboard
 
         if [[ "$(uname -p)" == arm* ]]; then
             # arm specific modules

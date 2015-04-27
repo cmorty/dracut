@@ -70,7 +70,7 @@ do_test_run() {
 	|| return 1
 
     run_client "netroot=iscsi target1 target2" \
-	"iscsi_firmware root=LABEL=sysroot ip=192.168.50.101::192.168.50.1:255.255.255.0:iscsi-1:ens3:off" \
+	"root=LABEL=sysroot ip=192.168.50.101::192.168.50.1:255.255.255.0:iscsi-1:ens3:off" \
 	"netroot=iscsi:192.168.50.1::::iqn.2009-06.dracut:target1 netroot=iscsi:192.168.50.1::::iqn.2009-06.dracut:target2" \
 	|| return 1
     return 0
@@ -143,6 +143,7 @@ test_setup() {
     $basedir/dracut.sh -l -i $TESTDIR/overlay / \
         -m "dash crypt lvm mdraid udev-rules base rootfs-block fs-lib kernel-modules" \
         -d "piix ide-gd_mod ata_piix ext3 sd_mod" \
+        --no-hostonly-cmdline -N \
         -f $TESTDIR/initramfs.makeroot $KVERSION || return 1
     rm -rf -- $TESTDIR/overlay
 
@@ -175,6 +176,7 @@ test_setup() {
         -o "dash plymouth dmraid" \
         -a "debug" \
         -d "af_packet piix ide-gd_mod ata_piix ext3 sd_mod" \
+        --no-hostonly-cmdline -N \
         -f $TESTDIR/initramfs.testing $KVERSION || return 1
 
     # Make server root
@@ -225,6 +227,7 @@ test_setup() {
     $basedir/dracut.sh -l -i $TESTDIR/overlay / \
         -m "dash udev-rules base rootfs-block fs-lib debug kernel-modules" \
         -d "af_packet piix ide-gd_mod ata_piix ext3 sd_mod e1000" \
+        --no-hostonly-cmdline -N \
         -f $TESTDIR/initramfs.server $KVERSION || return 1
 
 }

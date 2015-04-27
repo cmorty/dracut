@@ -17,6 +17,7 @@ depends() {
 # called by dracut
 installkernel() {
     # Include wired net drivers, excluding wireless
+    local _arch=$(uname -m)
 
     net_module_filter() {
         local _net_drivers='eth_type_trans|register_virtio_device|usbnet_open'
@@ -79,7 +80,8 @@ install() {
     inst_script "$moddir/netroot.sh" "/sbin/netroot"
     inst_script "$moddir/dhclient-script.sh" "/sbin/dhclient-script"
     inst_simple "$moddir/net-lib.sh" "/lib/net-lib.sh"
-    inst_simple "$moddir/dhclient.conf" "/etc/dhclient.conf"
+    inst_simple -H "/etc/dhclient.conf"
+    cat "$moddir/dhclient.conf" >> "${initdir}/etc/dhclient.conf"
     inst_hook pre-udev 50 "$moddir/ifname-genrules.sh"
     inst_hook pre-udev 60 "$moddir/net-genrules.sh"
     inst_hook cmdline 91 "$moddir/dhcp-root.sh"

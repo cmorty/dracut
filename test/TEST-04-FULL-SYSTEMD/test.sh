@@ -173,6 +173,7 @@ EOF
 
         # install basic keyboard maps and fonts
         for i in \
+            /usr/lib/kbd/consolefonts/eurlatgr* \
             /usr/lib/kbd/consolefonts/latarcyrheb-sun16* \
             /usr/lib/kbd/keymaps/include/* \
             /usr/lib/kbd/keymaps/i386/include/* \
@@ -190,7 +191,7 @@ EOF
         # softlink mtab
         ln -fs /proc/self/mounts $initdir/etc/mtab
 
-        # install any Exec's from the service files
+        # install any Execs from the service files
         egrep -ho '^Exec[^ ]*=[^ ]+' $initdir/lib/systemd/system/*.service \
             | while read i; do
             i=${i##Exec*=}; i=${i##-}
@@ -204,7 +205,7 @@ EOF
         cp -a /etc/ld.so.conf* $initdir/etc
         ldconfig -r "$initdir"
         ddebug "Strip binaeries"
-        find "$initdir" -perm +111 -type f | xargs -r strip --strip-unneeded | ddebug
+        find "$initdir" -perm /0111 -type f | xargs -r strip --strip-unneeded | ddebug
 
         # copy depmod files
         inst /lib/modules/$kernel/modules.order
@@ -236,6 +237,7 @@ EOF
 	-d "piix ide-gd_mod ata_piix btrfs sd_mod" \
         --nomdadmconf \
         --nohardlink \
+        --no-hostonly-cmdline -N \
 	-f $TESTDIR/initramfs.makeroot $KVERSION || return 1
 
     # Invoke KVM and/or QEMU to actually create the target filesystem.
@@ -262,6 +264,7 @@ EOF
 	-I "/etc/machine-id /etc/hostname" \
         -o "dash network plymouth lvm mdraid resume crypt i18n caps dm terminfo usrmount" \
 	-d "piix ide-gd_mod ata_piix btrfs sd_mod i6300esb ib700wdt" \
+        --no-hostonly-cmdline -N \
 	-f $TESTDIR/initramfs.testing $KVERSION || return 1
 
     rm -rf -- $TESTDIR/overlay

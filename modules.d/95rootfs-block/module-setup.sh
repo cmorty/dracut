@@ -29,23 +29,28 @@ cmdline_journal() {
     return 0
 }
 
-# called by dracut
-cmdline() {
+cmdline_rootfs() {
     local dev=/dev/block/$(find_root_block_device)
     if [ -e $dev ]; then
         printf " root=%s" "$(shorten_persistent_dev "$(get_persistent_dev "$dev")")"
         printf " rootflags=%s" "$(find_mp_fsopts /)"
         printf " rootfstype=%s" "$(find_mp_fstype /)"
     fi
+}
+
+# called by dracut
+cmdline() {
+    cmdline_rootfs
     cmdline_journal
 }
 
 # called by dracut
 install() {
     if [[ $hostonly_cmdline == "yes" ]]; then
-        cmdline_journal | while read journaldev; do
-            [[ $journaldev ]] && printf "%s\n" "$journaldev" >> "${initdir}/etc/cmdline.d/95root-journaldev.conf"
-        done
+        local _journaldev=$(cmdline_journal)
+        [[ $_journaldev ]] && printf "%s\n" "$_journaldev" >> "${initdir}/etc/cmdline.d/95root-journaldev.conf"
+        local _rootdev=$(cmdline_rootfs)
+        [[ $_rootdev ]] && printf "%s\n" "$_rootdev" >> "${initdir}/etc/cmdline.d/95root-dev.conf"
     fi
 
     inst_multiple umount

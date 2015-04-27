@@ -219,6 +219,16 @@ push() {
     done
 }
 
+# Fills up host_devs stack variable and makes sure there are no duplicates
+push_host_devs() {
+    local _dev
+    for _dev in ${host_devs[@]}; do
+        [ "$_dev" = "$1" ] && return
+    done
+    push host_devs "$1"
+}
+
+
 # function pop()
 # pops the last value from a stack
 # assigns value to second argument variable
@@ -816,13 +826,29 @@ stdloglvl=$((stdloglvl + verbosity_mod_l))
 # eliminate IFS hackery when messing with fw_dir
 fw_dir=${fw_dir//:/ }
 
+# check for logfile and try to create one if it doesn't exist
+if [[ -n "$logfile" ]];then
+    if [[ ! -f "$logfile" ]];then
+        touch "$logfile"
+        if [ ! $? -eq 0 ] ;then
+            printf "%s\n" "dracut: touch $logfile failed." >&2
+        fi
+    fi
+fi
+
 # handle compression options.
 [[ $compress ]] || compress="gzip"
 case $compress in
     bzip2) compress="bzip2 -9";;
     lzma)  compress="lzma -9 -T0";;
     xz)    compress="xz --check=crc32 --lzma2=dict=1MiB -T0";;
-    gzip)  compress="gzip -n -9 --rsyncable"; command -v pigz > /dev/null 2>&1 && compress="pigz -9 -n -T -R";;
+    gzip)  compress="gzip -n -9";
+        if command -v pigz > /dev/null 2>&1; then
+            compress="pigz -9 -n -T -R"
+        elif command -v gzip --help 2>&1 | grep -q rsyncable; then
+            compress="gzip -n -9 --rsyncable"
+        fi
+        ;;
     lzo)   compress="lzop -9";;
     lz4)   compress="lz4 -l -9";;
 esac
@@ -1045,26 +1071,42 @@ declare -A host_fs_types
 
 for line in "${fstab_lines[@]}"; do
     set -- $line
+    dev="$1"
     #dev mp fs fsopts
-    push host_devs "$1"
-    host_fs_types["$1"]="$3"
+    case "$dev" in
+        UUID=*)
+            dev=$(blkid -l -t UUID=${dev#UUID=} -o device)
+            ;;
+        LABEL=*)
+            dev=$(blkid -l -t LABEL=${dev#LABEL=} -o device)
+            ;;
+        PARTUUID=*)
+            dev=$(blkid -l -t PARTUUID=${dev#PARTUUID=} -o device)
+            ;;
+        PARTLABEL=*)
+            dev=$(blkid -l -t PARTLABEL=${dev#PARTLABEL=} -o device)
+            ;;
+    esac
+    [ -z "$dev" ] && dwarn "Bad fstab entry $@" && continue
+    push_host_devs "$dev"
+    host_fs_types["$dev"]="$3"
 done
 
 for f in $add_fstab; do
     [[ -e $f ]] || continue
     while read dev rest; do
-        push host_devs "$dev"
+        push_host_devs "$dev"
     done < "$f"
 done
 
 for dev in $add_device; do
-    push host_devs "$dev"
+    push_host_devs "$dev"
 done
 
 if (( ${#add_device_l[@]} )); then
     while pop add_device_l val; do
         add_device+=" $val "
-        push host_devs "$val"
+        push_host_devs "$val"
     done
 fi
 
@@ -1093,9 +1135,9 @@ if [[ $hostonly ]]; then
         _dev=$(find_block_device "$mp")
         _bdev=$(readlink -f "/dev/block/$_dev")
         [[ -b $_bdev ]] && _dev=$_bdev
-        push host_devs $_dev
+        push_host_devs $_dev
         [[ "$mp" == "/" ]] && root_dev="$_dev"
-        push host_devs "$_dev"
+        push_host_devs "$_dev"
     done
 
     if [[ -f /proc/swaps ]] && [[ -f /etc/fstab ]]; then
@@ -1124,7 +1166,7 @@ if [[ $hostonly ]]; then
                     done < /etc/crypttab
                 fi
 
-                push host_devs "$(readlink -f "$dev")"
+                push_host_devs "$(readlink -f "$dev")"
                 break
             done < /etc/fstab
         done < /proc/swaps
@@ -1189,7 +1231,7 @@ for dev in "${!host_fs_types[@]}"; do
     fi
     if [[ $journaldev ]]; then
         dev="$(readlink -f "$dev")"
-        push host_devs "$dev"
+        push_host_devs "$dev"
         _get_fs_type "$dev"
         check_block_and_slaves_all _get_fs_type "$(get_maj_min "$dev")"
     fi
@@ -1220,6 +1262,14 @@ fi
 
 [[ -d "$systemdsystemconfdir" ]] || systemdsystemconfdir=/etc/systemd/system
 
+[[ -d $tmpfilesdir ]] \
+    || tmpfilesdir=$(pkg-config systemd --variable=tmpfilesdir 2>/dev/null)
+
+if ! [[ -d "$tmpfilesdir" ]]; then
+    [[ -f /lib/tmpfiles.d ]] && tmpfilesdir=/lib/tmpfiles.d
+    [[ -f /usr/lib/tmpfiles.d ]] && tmpfilesdir=/usr/lib/tmpfiles.d
+fi
+
 export initdir dracutbasedir \
     dracutmodules force_add_dracutmodules add_dracutmodules omit_dracutmodules \
     mods_to_load \
@@ -1230,7 +1280,8 @@ export initdir dracutbasedir \
     debug host_fs_types host_devs sshkey add_fstab \
     DRACUT_VERSION udevdir prefix filesystems drivers \
     systemdutildir systemdsystemunitdir systemdsystemconfdir \
-    host_modalias host_modules hostonly_cmdline loginstall
+    host_modalias host_modules hostonly_cmdline loginstall \
+    tmpfilesdir
 
 mods_to_load=""
 # check all our modules to see if they should be sourced.
@@ -1285,7 +1336,6 @@ if [[ $kernel_only != yes ]]; then
 
     ln -sfn ../run "$initdir/var/run"
     ln -sfn ../run/lock "$initdir/var/lock"
-    ln -sfn ../run/log "$initdir/var/log"
 else
     for d in lib "$libdir"; do
         [[ -e "${initdir}${prefix}/$d" ]] && continue
@@ -1420,9 +1470,7 @@ if [[ $kernel_only != yes ]]; then
 
     if [[ $DRACUT_RESOLVE_LAZY ]] && [[ $DRACUT_INSTALL ]]; then
         dinfo "*** Resolving executable dependencies ***"
-        find "$initdir" -type f \
-            '(' -perm -0100 -or -perm -0010 -or -perm -0001 ')' \
-            -not -path '*.ko' -print0 \
+        find "$initdir" -type f -perm /0111 -not -path '*.ko' -print0 \
         | xargs -r -0 $DRACUT_INSTALL ${initdir:+-D "$initdir"} -R ${DRACUT_FIPS_MODE:+-H} --
         dinfo "*** Resolving executable dependencies done***"
     fi
@@ -1443,12 +1491,13 @@ while pop include_src src && pop include_target tgt; do
             inst $src $tgt
         else
             ddebug "Including directory: $src"
-            mkdir -p "${initdir}/${tgt}"
+            destdir="${initdir}/${tgt}"
+            mkdir -p "$destdir"
             # check for preexisting symlinks, so we can cope with the
             # symlinks to $prefix
             for i in "$src"/*; do
                 [[ -e "$i" || -h "$i" ]] || continue
-                s=${initdir}/${tgt}/${i#$src/}
+                s=${destdir}/${i#$src/}
                 if [[ -d "$i" ]]; then
                     if ! [[ -e "$s" ]]; then
                         mkdir -m 0755 -p "$s"
@@ -1456,7 +1505,7 @@ while pop include_src src && pop include_target tgt; do
                     fi
                     cp --reflink=auto --sparse=auto -fa -t "$s" "$i"/*
                 else
-                    cp --reflink=auto --sparse=auto -fa -t "$s" "$i"
+                    cp --reflink=auto --sparse=auto -fa -t "$destdir" "$i"
                 fi
             done
         fi
@@ -1570,6 +1619,20 @@ if ! ( echo $PARMS_TO_STORE > $initdir/lib/dracut/build-parameter.txt ); then
     exit 1
 fi
 
+if [[ $hostonly_cmdline ]] ; then
+    unset _stored_cmdline
+    if [ -d $initdir/etc/cmdline.d ];then
+        dinfo "Stored kernel commandline:"
+        for conf in $initdir/etc/cmdline.d/*.conf ; do
+            [ -e "$conf" ] || continue
+            dinfo "$(< $conf)"
+            _stored_cmdline=1
+        done
+    fi
+    if ! [[ $_stored_cmdline ]]; then
+        dinfo "No dracut internal kernel commandline stored in initrd"
+    fi
+fi
 rm -f -- "$outfile"
 dinfo "*** Creating image file ***"
 

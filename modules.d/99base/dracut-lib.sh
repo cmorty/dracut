@@ -6,7 +6,11 @@ if [ -n "$NEWROOT" ]; then
     [ -d $NEWROOT ] || mkdir -p -m 0755 $NEWROOT
 fi
 
-[ -d /run/initramfs ] || mkdir -p -m 0755 /run/initramfs
+if ! [ -d /run/initramfs ]; then
+    mkdir -p -m 0755 /run/initramfs/log
+    ln -sfn /run/initramfs/log /var/log
+fi
+
 [ -d /run/lock ] || mkdir -p -m 0755 /run/lock
 [ -d /run/log ] || mkdir -p -m 0755 /run/log
 
@@ -389,7 +393,7 @@ splitsep() {
 }
 
 setdebug() {
-    [ -f /etc/initrd-release ] || return
+    [ -f /usr/lib/initrd-release ] || return
     if [ -z "$RD_DEBUG" ]; then
         if [ -e /proc/cmdline ]; then
             RD_DEBUG=no
@@ -862,18 +866,30 @@ wait_for_mount()
     } >> "$hookdir/emergency/90-${_name}.sh"
 }
 
+# get a systemd-compatible unit name from a path
+# (mimicks unit_name_from_path_instance())
 dev_unit_name()
 {
+    local dev="$1"
+
     if command -v systemd-escape >/dev/null; then
-        systemd-escape -p  "$1"
+        systemd-escape -p  "$dev"
         return
     fi
 
-    _name="${1%%/}"
-    _name="${_name##/}"
-    _name="$(str_replace "$_name" '-' '\x2d')"
-    _name="$(str_replace "$_name" '/' '-')"
-    echo "$_name"
+    if [ "$dev" = "/" -o -z "$dev" ]; then
+        printf -- "-"
+        exit 0
+    fi
+
+    dev="${1%%/}"
+    dev="${dev##/}"
+    dev="$(str_replace "$dev" '\' '\x5c')"
+    dev="$(str_replace "$dev" '-' '\x2d')"
+    dev=${dev/#\./\\x2e}
+    dev="$(str_replace "$dev" '/' '-')"
+
+    printf -- "%s" "$dev"
 }
 
 # wait_for_dev <dev>
@@ -886,11 +902,15 @@ wait_for_dev()
     local _name
     local _needreload
     local _noreload
+    local _timeout
 
     if [ "$1" = "-n" ]; then
         _noreload=1
         shift
     fi
+
+    _timeout=$(getarg rd.timeout)
+    _timeout=${_timeout:-0}
 
     _name="$(str_replace "$1" '/' '\x2f')"
 
@@ -918,7 +938,7 @@ wait_for_dev()
             mkdir -p ${PREFIX}/etc/systemd/system/${_name}.device.d
             {
                 echo "[Unit]"
-                echo "JobTimeoutSec=0"
+                echo "JobTimeoutSec=$_timeout"
             } > ${PREFIX}/etc/systemd/system/${_name}.device.d/timeout.conf
             type mark_hostonly >/dev/null 2>&1 && mark_hostonly /etc/systemd/system/${_name}.device.d/timeout.conf
             _needreload=1

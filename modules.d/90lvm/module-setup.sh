@@ -42,6 +42,10 @@ cmdline() {
     done
 }
 
+installkernel() {
+    instmods dm-snapshot
+}
+
 # called by dracut
 install() {
     local _i
@@ -49,8 +53,8 @@ install() {
     inst lvm
 
     if [[ $hostonly_cmdline == "yes" ]]; then
-        cmdline >> "${initdir}/etc/cmdline.d/90lvm.conf"
-        echo >> "${initdir}/etc/cmdline.d/90lvm.conf"
+        local _lvmconf=$(cmdline)
+        [[ $_lvmconf ]] && printf "%s\n" "$_lvmconf" >> "${initdir}/etc/cmdline.d/90lvm.conf"
     fi
 
     inst_rules "$moddir/64-lvm.rules"
@@ -107,12 +111,19 @@ install() {
             dev=$(</sys/block/${dev#/dev/}/dm/name)
             eval $(dmsetup splitname --nameprefixes --noheadings --rows "$dev" 2>/dev/null)
             [[ ${DM_VG_NAME} ]] && [[ ${DM_LV_NAME} ]] || continue
-            if [[ "$(lvs --noheadings -o segtype ${DM_VG_NAME} 2>/dev/null)" == *thin* ]] ; then
-                inst_multiple -o thin_dump thin_restore thin_check thin_repair
-                break
-            fi
+            case "$(lvs --noheadings -o segtype ${DM_VG_NAME} 2>/dev/null)" in
+                *thin*|*cache*|*era*)
+                    inst_multiple -o thin_dump thin_restore thin_check thin_repair \
+                                  cache_dump cache_restore cache_check cache_repair \
+                                  era_check era_dump era_invalidate era_restore
+                    break;;
+            esac
         done
-    else
-        inst_multiple -o thin_dump thin_restore thin_check thin_repair
+    fi
+
+    if ! [[ $hostonly ]]; then
+        inst_multiple -o thin_dump thin_restore thin_check thin_repair \
+                      cache_dump cache_restore cache_check cache_repair \
+                      era_check era_dump era_invalidate era_restore
     fi
 }
