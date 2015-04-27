@@ -24,6 +24,10 @@ IF_dynamic=""
 # Generic substring function.  If $2 is in $1, return 0.
 strstr() { [[ $1 =~ $2 ]]; }
 
+# Create all subdirectories for given path without creating the last element.
+# $1 = path
+mksubdirs() { mkdir -p ${1%/*}; }
+
 # Version comparision function.  Assumes Linux style version scheme.
 # $1 = version a
 # $2 = comparision op (gt, ge, eq, le, lt, ne)
@@ -77,7 +81,20 @@ derror() {
     [[ -w $dracutlogfile ]] && echo "E: $@" >>"$dracutlogfile"
 }
 
+# Function prints global variables in format name=value line by line.
+# $@ = list of global variables' name
+print_vars() {
+    local var value
+
+    for var in $@
+    do
+        value=$(eval echo \$$var)
+        [[ ${value} ]] && echo "${var}=\"${value}\""
+    done
+}
+
 get_fs_env() {
+    [[ $1 ]] || return
     eval $(udevadm info --query=env --name=$1|egrep 'ID_FS_(TYPE|UUID)=')
     [[ $ID_FS_TYPE ]] && return
 
@@ -91,6 +108,13 @@ get_fs_env() {
 }
 
 get_fs_type() (
+    [[ $1 ]] || return
+    if [[ $1 != ${1#/dev/block/nfs:} ]] \
+	|| [[ $1 != ${1#/dev/block/nfs3:} ]] \
+	|| [[ $1 != ${1#/dev/block/nfs4:} ]]; then
+	echo "nfs"
+	return
+    fi
     get_fs_env $1 || return
     echo $ID_FS_TYPE
 )
@@ -102,15 +126,35 @@ get_fs_uuid() (
 
 # finds the major:minor of the block device backing the root filesystem.
 find_block_device() {
-    local rootdev blkdev fs type opts misc
-    while read blkdev fs type opts misc; do
-	[[ $blkdev = rootfs ]] && continue # skip rootfs entry
-	[[ $fs = $1 ]] && { rootdev=$blkdev; break; } # we have a winner!
-    done < /proc/mounts
-    [[ -b $rootdev ]] || return 1 # oops, not a block device.
-    # get major/minor for the device
-    ls -nLl "$rootdev" | \
-	(read x x x x maj min x; maj=${maj//,/}; echo $maj:$min)
+    local x mpt majmin dev fs misc maj min
+    if [[ $use_fstab != yes ]]; then	
+	while read x x majmin x mpt x x fs misc; do
+            [[ $fs = nfs ]] && { echo $dev; return 0;}
+            [[ $fs = nfs3 ]] && { echo $dev; return 0;}
+            [[ $fs = nfs4 ]] && { echo $dev; return 0;}
+	    if [[ $mpt = $1 ]] && [[ ${majmin#0:} = $majmin ]]; then
+		echo $majmin; 
+		return 0 # we have a winner!
+	    fi
+	done < /proc/self/mountinfo       
+    fi
+    # fall back to /etc/fstab    
+    while read dev mpt fs misc; do
+	if [[ $mpt = $1 ]]; then
+            [[ $fs = nfs ]] && { echo $dev; return 0;}
+            [[ $fs = nfs3 ]] && { echo $dev; return 0;}
+            [[ $fs = nfs4 ]] && { echo $dev; return 0;}
+            [[ $dev != ${dev#UUID=} ]] && dev=/dev/disk/by-uuid/${dev#UUID=}
+            [[ $dev != ${dev#LABEL=} ]] && dev=/dev/disk/by-label/${dev#LABEL=}
+	    [[ -b $dev ]] || return 1 # oops, not a block device.
+	    ls -nLl "$dev" | { 
+		read x x x x maj min x;
+		maj=${maj//,/}; 
+		echo $maj:$min; 
+	    } && return 0
+	fi
+    done < /etc/fstab
+    return 1;
 }
 
 find_root_block_device() { find_block_device /; }
@@ -210,11 +254,36 @@ inst_simple() {
     cp -pfL "$src" "${initdir}$target"
 }
 
+# find symlinks linked to given library file
+# $1 = library file
+# Function searches for symlinks by stripping version numbers appended to
+# library filename, checks if it points to the same target and finally
+# prints the list of symlinks to stdout.
+#
+# Example:
+# rev_lib_symlinks libfoo.so.8.1
+# output: libfoo.so.8 libfoo.so
+# (Only if libfoo.so.8 and libfoo.so exists on host system.)
+rev_lib_symlinks() {
+    [[ ! $1 ]] && return 0
+
+    local fn="$1" orig="$(readlink -f "$1")" links=''
+
+    [[ ${fn} =~ .*\.so\..* ]] || return 1
+
+    until [[ ${fn##*.} == so ]]; do
+        fn="${fn%.*}"
+        [[ -L ${fn} && $(readlink -f "${fn}") == ${orig} ]] && links+=" ${fn}"
+    done
+
+    echo ${links}
+}
+
 # Same as above, but specialized to handle dynamic libraries.
 # It handles making symlinks according to how the original library
 # is referenced.
 inst_library() {
-    local src=$1 dest=${2:-$1}
+    local src=$1 dest=${2:-$1} lib reallib symlink
     [[ -e $initdir$dest ]] && return 0
     if [[ -L $src ]]; then
 	reallib=$(readlink -f "$src")
@@ -225,6 +294,14 @@ inst_library() {
     else
 	inst_simple "$src" "$dest"
     fi
+
+    # Create additional symlinks.  See rev_symlinks description.
+    for symlink in $(rev_lib_symlinks $src) $(rev_lib_symlinks $reallib); do
+        [[ ! -e $initdir$symlink ]] && {
+            dinfo "Creating extra symlink: $symlink"
+            inst_symlink $symlink
+        }
+    done
 }
 
 # find a binary.  If we were not passed the full path directly,
@@ -248,7 +325,7 @@ inst_binary() {
     local LDSO NAME IO FILE ADDR I1 n f TLIBDIR
     [[ -e $initdir$target ]] && return 0
     # I love bash!
-    ldd $bin 2>/dev/null | while read line; do
+    LC_ALL=C ldd $bin 2>/dev/null | while read line; do
 	[[ $line = 'not a dynamic executable' ]] && return 1
 	if [[ $line =~ not\ found ]]; then
 	    derror "Missing a shared library required by $bin."
@@ -315,12 +392,14 @@ find_rule() {
 # udev rules always get installed in the same place, so
 # create a function to install them to make life simpler.
 inst_rules() { 
-    local target=/etc/udev/rules.d
+    local target=/etc/udev/rules.d rule found
+
     inst_dir "/lib/udev/rules.d"
     inst_dir "$target"
     for rule in "$@"; do 
-	rule=$(find_rule "$rule") && \
-	    inst_simple "$rule" "$target/${rule##*/}"
+        found=$(find_rule "$rule") && \
+            inst_simple "$found" "$target/${found##*/}" \
+            || dinfo "Skipping udev rule: $rule"
     done
 }
 
@@ -381,10 +460,58 @@ dracut_install() {
     done
 }
 
+# install function decompressing the target and handling symlinks
+# $@ = list of compressed (gz or bz2) files or symlinks pointing to such files
+#
+# Function install targets in the same paths inside overlay but decompressed
+# and without extensions (.gz, .bz2).
+inst_decompress() {
+    local src dst realsrc realdst cmd
+
+    for src in $@
+    do
+        case ${src} in
+            *.gz) cmd='gzip -d' ;;
+            *.bz2) cmd='bzip2 -d' ;;
+            *) return 1 ;;
+        esac
+
+        if [[ -L ${src} ]]
+        then
+            realsrc="$(readlink -f ${src})" # symlink target with extension
+            dst="${src%.*}" # symlink without extension
+            realdst="${realsrc%.*}" # symlink target without extension
+            mksubdirs "${initdir}/${src}"
+            # Create symlink without extension to target without extension.
+            ln -s "${realdst}" "${initdir}/${dst}"
+        fi
+
+        # If the source is symlink we operate on its target.
+        [[ ${realsrc} ]] && src=${realsrc}
+        inst ${src}
+        # Decompress with chosen tool.  We assume that tool changes name e.g.
+        # from 'name.gz' to 'name'.
+        ${cmd} "${initdir}${src}"
+    done
+}
+
+# It's similar to above, but if file is not compressed, performs standard
+# install.
+# $@ = list of files
+inst_opt_decompress() {
+    local src
+
+    for src in $@
+    do
+        inst_decompress "${src}" || inst "${src}"
+    done
+}
+
 check_module_deps() {
     local moddir dep ret
     # if we are already set to be loaded, we do not have to be checked again.
-    strstr "$mods_to_load" " $1 " && return
+    strstr " $mods_to_load " " $1 " && return
+    strstr " $omit_dracutmodules " " $1 " && return 1
     # turn a module name into a directory, if we can.
     moddir=$(echo ${dracutbasedir}/modules.d/??${1})
     [[ -d $moddir && -x $moddir/install ]] || return 1
@@ -405,13 +532,14 @@ check_module_deps() {
 
 should_source_module() {
     local dep
+    local ret
     if [[ $kernel_only = yes ]]; then
         [[ -x $1/installkernel ]] && return 0
         return 1
     fi
     [[ -x $1/install ]] || [[ -x $1/installkernel ]] || return 1
     [[ -x $1/check ]] || return 0
-    "$1/check" $hostonly || return 1
+    "$1/check" $hostonly || continue
     for dep in $("$1/check" -d); do
 	check_module_deps "$dep" && continue
 	dwarning "Cannot load dracut module \"$mod\", dependencies failed."
@@ -425,23 +553,38 @@ check_modules() {
     for moddir in "$dracutbasedir/modules.d"/[0-9][0-9]*; do
 	local mod=${moddir##*/}; mod=${mod#[0-9][0-9]}
 	# If we are already scheduled to be loaded, no need to check again.
-	strstr "$mods_to_load" " $mod " && continue
+	strstr " $mods_to_load " " $mod " && continue
 	# This should never happen, but...
 	[[ -d $moddir ]] || continue
-	[[ $dracutmodules != all ]] && ! strstr "$dracutmodules" "$mod" && \
-	    continue
-	strstr "$omit_dracutmodules" "$mod" && continue
-	if ! strstr "$add_dracutmodules" "$mod"; then
-	    should_source_module "$moddir" || continue
+        strstr " $omit_dracutmodules " " $mod " && continue
+
+        if ! strstr " $dracutmodules $add_dracutmodules " " $mod "; then
+            # module not in our list
+	    if [[ $dracutmodules = all ]]; then
+                # check, if we can install this module
+	        should_source_module "$moddir" || continue
+            else
+                # skip this module
+                continue
+            fi
+	else
+	    if [ -x "$moddir/check" ] \
+                && "$moddir/check" -d > /dev/null 2>&1; then
+		check_module_deps "$mod" || {
+		    dwarning "Cannot load dracut module \"$mod\", dependencies failed."
+                    continue
+                }
+            fi
         fi
+
 	mods_to_load+=" $mod "
     done
 
     modcheck=$add_dracutmodules
     [[ $dracutmodules != all ]] && modcheck="$m $dracutmodules"
     for mod in $modcheck; do
-        strstr "$mods_to_load" "$mod" && continue
-        strstr "$omit_dracutmodules" "$mod" && continue
+        strstr " $mods_to_load " " $mod " && continue
+        strstr " $omit_dracutmodules " " $mod " && continue
         dwarning "Dracut module \"$mod\" cannot be found."
     done
 }
@@ -542,7 +685,7 @@ instmods() {
 	        [[ -f $initdir/$1 ]] && { shift; continue; }
 		# If we are building a host-specific initramfs and this
 		# module is not already loaded, move on to the next one.
-		[[ $hostonly ]] && ! grep -q "${mod//-/_}" /proc/modules && \
+		[[ $hostonly ]] && ! grep -qe "\<${mod//-/_}\>" /proc/modules && \
 	        ! echo $add_drivers | grep -qe "\<${mod}\>" &&	{
 		    shift; continue; 
 		}

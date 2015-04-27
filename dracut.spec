@@ -19,7 +19,7 @@
 %endif
 
 Name: dracut
-Version: 006
+Version: 007
 Release: 1%{?rdist}
 Summary: Initramfs generator using udev
 Group: System Environment/Base          
@@ -29,6 +29,7 @@ URL: http://apps.sourceforge.net/trac/dracut/wiki
 # http://dracut.git.sourceforge.net/git/gitweb.cgi?p=dracut/dracut;a=snapshot;h=%{?dashgittag};sf=tgz
 Source0: dracut-%{version}%{?dashgittag}.tar.bz2
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
+BuildRequires: docbook-style-xsl docbook-dtds docbook-style-xsl libxslt 
 
 %if 0%{?fedora} > 12 || 0%{?rhel} >= 6
 # no "provides", because dracut does not offer
@@ -84,6 +85,7 @@ Requires: nbd
 %endif
 Requires: net-tools iproute
 Requires: bridge-utils
+Requires: vconfig
 
 %description network
 This package requires everything which is needed to build a generic
@@ -120,6 +122,7 @@ Requires: coreutils cryptsetup-luks device-mapper
 Requires: diffutils dmraid findutils grep lvm2 gawk
 Requires: module-init-tools sed
 Requires: cpio gzip
+Requires: %{name} = %{version}-%{release}
 
 %description tools
 This package contains tools to assemble the local initrd and host configuration.
@@ -137,11 +140,14 @@ make install DESTDIR=$RPM_BUILD_ROOT sbindir=/sbin \
 
 echo %{name}-%{version}-%{release} > $RPM_BUILD_ROOT/%{_datadir}/dracut/modules.d/10rpmversion/dracut-version
 rm $RPM_BUILD_ROOT/%{_datadir}/dracut/modules.d/01fips/check
+# remove gentoo specific modules
+rm -fr $RPM_BUILD_ROOT/%{_datadir}/dracut/modules.d/50gensplash
 
 mkdir -p $RPM_BUILD_ROOT/boot/dracut
 mkdir -p $RPM_BUILD_ROOT/var/lib/dracut/overlay
 mkdir -p $RPM_BUILD_ROOT%{_localstatedir}/log
 touch $RPM_BUILD_ROOT%{_localstatedir}/log/dracut.log
+install -m 0644 dracut.conf.d/fedora.conf.example $RPM_BUILD_ROOT/etc/dracut.conf.d/fedora.conf
 
 %if 0%{?fedora} <= 12 && 0%{?rhel} < 6
 rm $RPM_BUILD_ROOT/sbin/mkinitrd
@@ -165,11 +171,14 @@ rm -rf $RPM_BUILD_ROOT
 %dir %{_datadir}/dracut
 %{_datadir}/dracut/dracut-functions
 %config(noreplace) /etc/dracut.conf
+%config(noreplace) /etc/dracut.conf.d/fedora.conf
 %dir /etc/dracut.conf.d
 %{_mandir}/man8/dracut.8*
+%{_mandir}/man7/dracut.kernel.7*
 %{_mandir}/man5/dracut.conf.5*
+%{_datadir}/dracut/modules.d/00bootchart
 %{_datadir}/dracut/modules.d/00dash
-%{_datadir}/dracut/modules.d/10redhat-i18n
+%{_datadir}/dracut/modules.d/10i18n
 %{_datadir}/dracut/modules.d/10rpmversion
 %{_datadir}/dracut/modules.d/50plymouth
 %{_datadir}/dracut/modules.d/60xen
@@ -200,7 +209,6 @@ rm -rf $RPM_BUILD_ROOT
 
 %files network
 %defattr(-,root,root,0755)
-%doc README HACKING TODO COPYING AUTHORS NEWS
 %{_datadir}/dracut/modules.d/40network
 %{_datadir}/dracut/modules.d/95fcoe
 %{_datadir}/dracut/modules.d/95iscsi
@@ -211,7 +219,6 @@ rm -rf $RPM_BUILD_ROOT
 
 %files fips
 %defattr(-,root,root,0755)
-%doc COPYING
 %{_datadir}/dracut/modules.d/01fips
 
 %files generic
@@ -220,7 +227,6 @@ rm -rf $RPM_BUILD_ROOT
 
 %files tools 
 %defattr(-,root,root,0755)
-%doc COPYING NEWS
 %{_mandir}/man8/dracut-gencmdline.8*
 %{_mandir}/man8/dracut-catimages.8*
 /sbin/dracut-gencmdline

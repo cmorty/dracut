@@ -1,4 +1,4 @@
-VERSION=006
+VERSION=007
 GITVERSION=$(shell [ -d .git ] && git rev-list  --abbrev-commit  -n 1 HEAD  |cut -b 1-8)
 
 prefix ?= /usr
@@ -8,6 +8,7 @@ sysconfdir ?= ${prefix}/etc
 sbindir ?= ${prefix}/sbin
 mandir ?= ${prefix}/share/man
 
+manpages = dracut.8 dracut.kernel.7 dracut.conf.5 dracut-catimages.8  dracut-gencmdline.8
 
 .PHONY: install clean archive rpm testimage test all check AUTHORS
 
@@ -17,7 +18,10 @@ else
 targets = 
 endif
 
-all: $(targets)
+all: $(targets) $(manpages)
+
+%: %.xml
+	xsltproc -o $@ -nonet http://docbook.sourceforge.net/release/xsl/current/manpages/docbook.xsl $<
 
 modules.d/99base/switch_root: switch_root.c
 	gcc -D _GNU_SOURCE -D 'PACKAGE_STRING="dracut"' -std=gnu99 -fsigned-char -g -O2 -o modules.d/99base/switch_root switch_root.c	
@@ -27,7 +31,7 @@ install:
 	mkdir -p $(DESTDIR)$(sbindir)
 	mkdir -p $(DESTDIR)$(sysconfdir)
 	mkdir -p $(DESTDIR)$(pkglibdir)/modules.d
-	mkdir -p $(DESTDIR)$(mandir)/man{5,8}
+	mkdir -p $(DESTDIR)$(mandir)/man{5,7,8}
 	install -m 0755 dracut $(DESTDIR)$(sbindir)/dracut
 	install -m 0755 dracut-gencmdline $(DESTDIR)$(sbindir)/dracut-gencmdline
 	install -m 0755 dracut-catimages $(DESTDIR)$(sbindir)/dracut-catimages
@@ -44,18 +48,20 @@ endif
 	install -m 0644 dracut-catimages.8 $(DESTDIR)$(mandir)/man8
 	install -m 0644 dracut-gencmdline.8 $(DESTDIR)$(mandir)/man8
 	install -m 0644 dracut.conf.5 $(DESTDIR)$(mandir)/man5
+	install -m 0644 dracut.kernel.7 $(DESTDIR)$(mandir)/man7
 ifeq (1,${WITH_SWITCH_ROOT})
 	rm $(DESTDIR)$(pkglibdir)/modules.d/99base/switch_root
 endif
 
 clean:
-	rm -f *~
-	rm -f */*~
-	rm -f */*/*~
-	rm -f modules.d/99base/switch_root
-	rm -f test-*.img
-	rm -f dracut-*.rpm dracut-*.tar.bz2
-	make -C test clean
+	$(RM) *~
+	$(RM) */*~
+	$(RM) */*/*~
+	$(RM) modules.d/99base/switch_root
+	$(RM) test-*.img
+	$(RM) dracut-*.rpm dracut-*.tar.bz2
+	$(RM) $(manpages)
+	$(MAKE) -C test clean
 
 archive: dracut-$(VERSION)-$(GITVERSION).tar.bz2
 
@@ -85,7 +91,7 @@ check: all
 	@ret=0;for i in modules.d/99base/init modules.d/*/*.sh; do \
 		dash -n "$$i" ; ret=$$(($$ret+$$?)); \
 	done;exit $$ret
-	make -C test check
+	$(MAKE) -C test check
 
 testimage: all
 	./dracut -l -a debug -f test-$(shell uname -r).img $(shell uname -r)

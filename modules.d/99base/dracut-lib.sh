@@ -6,7 +6,7 @@ strstr() {
 
 getarg() {
     set +x 
-    local o line
+    local o line val
     if [ -z "$CMDLINE" ]; then
         if [ -e /etc/cmdline ]; then
             while read line; do
@@ -17,9 +17,17 @@ getarg() {
 	CMDLINE="$CMDLINE $CMDLINE_ETC"
     fi
     for o in $CMDLINE; do
-	[ "$o" = "$1" ] && { [ "$RDDEBUG" = "yes" ] && set -x; return 0; }
-	[ "${o%%=*}" = "${1%=}" ] && { echo ${o#*=}; [ "$RDDEBUG" = "yes" ] && set -x; return 0; }
+	if [ "$o" = "$1" ]; then
+            [ "$RDDEBUG" = "yes" ] && set -x; 
+	    return 0; 
+        fi
+        [ "${o%%=*}" = "${1%=}" ] && val=${o#*=};
     done
+    if [ -n "$val" ]; then
+        echo $val; 
+        [ "$RDDEBUG" = "yes" ] && set -x; 
+	return 0;
+    fi
     [ "$RDDEBUG" = "yes" ] && set -x 
     return 1
 }
@@ -37,15 +45,46 @@ getargs() {
 	CMDLINE="$CMDLINE $CMDLINE_ETC"
     fi
     for o in $CMDLINE; do
-	[ "$o" = "$1" ] && { [ "$RDDEBUG" = "yes" ] && set -x; return 0; }
+	if [ "$o" = "$1" ]; then
+             [ "$RDDEBUG" = "yes" ] && set -x; 
+	     return 0;
+	fi
 	if [ "${o%%=*}" = "${1%=}" ]; then
 	    echo -n "${o#*=} "; 
 	    found=1;
 	fi
     done
-    [ -n "$found" ] && { [ "$RDDEBUG" = "yes" ] && set -x; return 0; }
+    if [ -n "$found" ]; then
+        [ "$RDDEBUG" = "yes" ] && set -x
+	return 0;
+    fi
     [ "$RDDEBUG" = "yes" ] && set -x 
     return 1;
+}
+
+# Prints value of given option.  If option is a flag and it's present,
+# it just returns 0.  Otherwise 1 is returned.
+# $1 = options separated by commas
+# $2 = option we are interested in
+# 
+# Example:
+# $1 = cipher=aes-cbc-essiv:sha256,hash=sha256,verify
+# $2 = hash
+# Output:
+# sha256
+getoptcomma() {
+    local line=",$1,"; local opt="$2"; local tmp
+
+    case "${line}" in
+        *,${opt}=*,*)
+            tmp="${line#*,${opt}=}"
+            echo "${tmp%%,*}"
+            return 0
+        ;;
+        *,${opt},*) return 0 ;;
+    esac
+
+    return 1
 }
 
 setdebug() {
@@ -56,6 +95,7 @@ setdebug() {
                 RDDEBUG=yes 
             fi
         fi
+	export RDDEBUG
     fi
     [ "$RDDEBUG" = "yes" ] && set -x 
 }
@@ -242,3 +282,35 @@ ip_to_var() {
     esac
 }
 
+# Evaluate command for UUIDs either given as arguments for this function or all
+# listed in /dev/disk/by-uuid.  UUIDs doesn't have to be fully specified.  If
+# beginning is given it is expanded to all matching UUIDs.  To pass full UUID
+# to your command use '${full_uuid}'.  Remember to escape '$'!
+#
+# $1 = command to be evaluated
+# $2 = list of UUIDs separated by space
+#
+# The function returns after *first successful evaluation* of the given command
+# with status 0.  If evaluation fails for every UUID function returns with
+# status 1.
+#
+# Example:
+# foreach_uuid_until "mount -U \${full_uuid} /mnt; echo OK; umount /mnt" \
+#       "01234 f512 a235567f-12a3-c123-a1b1-01234567abcb"
+foreach_uuid_until() (
+    cd /dev/disk/by-uuid
+
+    local cmd="$1"; shift; local uuids_list="$*"
+    local uuid; local full_uuid
+
+    [ -n "${cmd}" ] || return 1
+
+    for uuid in ${uuids_list:-*}; do
+        for full_uuid in ${uuid}*; do
+            [ -e "${full_uuid}" ] || continue
+            eval ${cmd} && return 0
+        done
+    done
+
+    return 1
+)

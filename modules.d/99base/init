@@ -62,11 +62,14 @@ export TERM=linux
 NEWROOT="/sysroot"
 
 trap "emergency_shell Signal caught!" 0
+# set umask
+OLD_UMASK=$(umask)
+umask 0007
 
 RDDEBUG=""
 . /lib/dracut-lib.sh
 
-mknod /dev/null c 1 3
+mknod -m 0666 /dev/null c 1 3
 
 # mount some important things
 mount -t proc /proc /proc >/dev/null 2>&1
@@ -78,10 +81,10 @@ if [ ! -c /dev/ptmx ]; then
         # if it failed fall back to normal tmpfs
 	mount -t tmpfs -omode=0755 udev /dev >/dev/null 2>&1 
 	# Make some basic devices first, let udev handle the rest
-	mknod /dev/null c 1 3
-	mknod /dev/ptmx c 5 2
-	mknod /dev/console c 5 1
-	mknod /dev/kmsg c 1 11
+	mknod -m 0666 /dev/null c 1 3
+	mknod -m 0666 /dev/ptmx c 5 2
+	mknod -m 0600 /dev/console c 5 1
+	mknod -m 0660 /dev/kmsg c 1 11
     fi
 fi
 
@@ -102,6 +105,8 @@ mkdir /dev/shm
 mkdir /dev/pts
 mount -t devpts -o gid=5,mode=620 devpts /dev/pts >/dev/null 2>&1
 mount -t tmpfs tmpfs /dev/shm >/dev/null 2>&1
+mkdir -m 0755 /dev/.udev
+mkdir -m 0755 /dev/.udev/rules.d
 
 UDEVVERSION=$(udevadm --version)
 
@@ -309,6 +314,8 @@ fi
 info "Switching root"
 
 wait_for_loginit
+
+umask $OLD_UMASK
 
 exec switch_root "$NEWROOT" "$INIT" $initargs || {
     echo "Something went very badly wrong in the initramfs.  Please "
