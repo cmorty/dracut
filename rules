@@ -11,7 +11,7 @@ override_dh_auto_configure:
 override_dh_fixperms:
 	dh_fixperms
 	# Ensure that all modules are executable. Unfortunately patch can not set the mode.
-	find debian/dracut-network/usr/lib/dracut/modules.d/ -name "*.sh" -type f -print0 | xargs -0 chmod 755
-	find debian/dracut-network/usr/lib/dracut/modules.d/ -name "*.sh" -type f -print0 | xargs -0 chmod 755
+	- test -f debian/dracut && find debian/dracut/usr/lib/dracut/modules.d/ -name "*.sh" -type f -print0 | xargs -0 chmod 755
+	- test -f debian/dracut-network && find debian/dracut-network/usr/lib/dracut/modules.d/ -name "*.sh" -type f -print0 | xargs -0 chmod 755
 
 override_dh_auto_test:
