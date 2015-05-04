@@ -1,0 +1,27 @@
+From f3c873feb3f85e41cb3a23f08ca8b03f3c3a6d75 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Moritz=20=27Morty=27=20Str=C3=BCbe?= <morty@gmx.net>
+Date: Thu, 30 Apr 2015 11:15:07 +0200
+Subject: [PATCH] Add plymouth-set-default-theme to the plymouth dependencies
+
+plymouth-set-default-theme is not shipped with ubuntu and therefore
+causes errors.
+---
+ modules.d/50plymouth/module-setup.sh | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/modules.d/50plymouth/module-setup.sh b/modules.d/50plymouth/module-setup.sh
+index 89e7162..27dafca 100755
+--- a/modules.d/50plymouth/module-setup.sh
++++ b/modules.d/50plymouth/module-setup.sh
+@@ -3,7 +3,7 @@
+ # called by dracut
+ check() {
+     [[ "$mount_needs" ]] && return 1
+-    require_binaries plymouthd plymouth
++    require_binaries plymouthd plymouth plymouth-set-default-theme
+ }
+ 
+ # called by dracut
+-- 
+1.9.1
+
