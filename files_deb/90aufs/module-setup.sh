@@ -6,7 +6,12 @@ depends() {
     return 0
 }
 
-install() {
+# called by dracut
+installkernel() {
+    instmods aufs
+}
 
+
+install() {
     inst_hook pre-pivot 10 "$moddir/aufs-mount.sh"
 }
