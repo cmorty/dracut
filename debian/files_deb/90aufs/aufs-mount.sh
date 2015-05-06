@@ -1,9 +1,5 @@
 #!/bin/sh
 
-# make a read-only root writeable by using aufs
-# the root is already mounted to $NEWROOT
-# add the parameter aufs to the kernel, to activate this feature
-
 . /lib/dracut-lib.sh
 
 aufs=$(getargs aufs)
