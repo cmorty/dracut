@@ -1,9 +1,5 @@
 #!/bin/sh
 
-# make any rootfs ro, but writable via aufs.
-# $NEWROOT must already be mounted.
-# add the parameter aufs to the kernel, to activate this feature
-
 . /lib/dracut-lib.sh
 
 aufs=$(getargs aufs)
