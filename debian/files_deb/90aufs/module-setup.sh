@@ -9,7 +9,7 @@ depends() {
 installkernel() {
     instmods aufs
 }
-install() {
 
+install() {
     inst_hook pre-pivot 10 "$moddir/aufs-mount.sh"
 }
