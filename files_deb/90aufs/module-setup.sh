@@ -1,8 +1,7 @@
 #!/bin/bash
 
 depends() {
-    # We depend on nfs modules being loaded
-    echo nfs
+    # We do not depend on any modules - just some root
     return 0
 }
 

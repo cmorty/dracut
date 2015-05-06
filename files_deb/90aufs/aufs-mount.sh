@@ -1,7 +1,7 @@
 #!/bin/sh
 
-# make a read-only nfsroot writeable by using aufs
-# the nfsroot is already mounted to $NEWROOT
+# make any rootfs ro, but writable via aufs.
+# $NEWROOT must already be mounted.
 # add the parameter aufs to the kernel, to activate this feature
 
 . /lib/dracut-lib.sh
