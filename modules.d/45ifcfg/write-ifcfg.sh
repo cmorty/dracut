@@ -22,7 +22,7 @@ get_config_line_by_subchannel()
     local line
 
     CHANNELS="$1"
-    while read line; do
+    while read line || [ -n "$line" ]; do
         if strstr "$line" "$CHANNELS"; then
             echo $line
             return 0
@@ -137,6 +137,8 @@ for netup in /tmp/net.*.did-setup ; do
     unset macaddr
     unset slave
     unset ethname
+    unset vlan
+
     [ -e /tmp/bond.${netif}.info ] && . /tmp/bond.${netif}.info
 
     uuid=$(cat /proc/sys/kernel/random/uuid)

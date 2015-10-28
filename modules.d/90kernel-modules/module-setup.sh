@@ -9,7 +9,7 @@ installkernel() {
             local _merge=8 _side2=9
             function bmf1() {
                 local _f
-                while read _f; do case "$_f" in
+                while read _f || [ -n "$_f" ]; do case "$_f" in
                     *.ko)    [[ $(<         $_f) =~ $_blockfuncs ]] && echo "$_f" ;;
                     *.ko.gz) [[ $(gzip -dc <$_f) =~ $_blockfuncs ]] && echo "$_f" ;;
                     *.ko.xz) [[ $(xz -dc   <$_f) =~ $_blockfuncs ]] && echo "$_f" ;;
@@ -19,7 +19,7 @@ installkernel() {
             }
             function rotor() {
                 local _f1 _f2
-                while read _f1; do
+                while read _f1 || [ -n "$_f1" ]; do
                     echo "$_f1"
                     if read _f2; then
                         echo "$_f2" 1>&${_side2}
@@ -41,10 +41,13 @@ installkernel() {
             uhci-hcd \
             xhci-hcd xhci-pci xhci-plat-hcd
 
+        instmods \
+            "=drivers/hid" \
+            "=drivers/input/serio" \
+            "=drivers/input/keyboard"
+
         instmods yenta_socket scsi_dh_rdac scsi_dh_emc scsi_dh_alua \
-            atkbd i8042 usbhid hid-apple hid-sunplus hid-cherry hid-logitech \
-            hid-logitech-dj hid-microsoft hid-lcpower firewire-ohci \
-            pcmcia hid-hyperv hv-vmbus hyperv-keyboard
+                 atkbd i8042 usbhid firewire-ohci pcmcia hv-vmbus
 
         if [[ "$(uname -p)" == arm* ]]; then
             # arm specific modules

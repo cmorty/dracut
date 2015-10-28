@@ -79,13 +79,13 @@ else
 fi
 
 vwarn() {
-    while read line; do
+    while read line || [ -n "$line" ]; do
         warn $line;
     done
 }
 
 vinfo() {
-    while read line; do
+    while read line || [ -n "$line" ]; do
         info $line;
     done
 }
@@ -127,22 +127,25 @@ getcmdline() {
     local _i
     local CMDLINE_ETC_D
     local CMDLINE_ETC
+    local CMDLINE_PROC
     unset _line
 
     if [ -e /etc/cmdline ]; then
-        while read -r _line; do
+        while read -r _line || [ -n "$_line" ]; do
             CMDLINE_ETC="$CMDLINE_ETC $_line";
         done </etc/cmdline;
     fi
     for _i in /etc/cmdline.d/*.conf; do
         [ -e "$_i" ] || continue
-        while read -r _line; do
+        while read -r _line || [ -n "$_line" ]; do
             CMDLINE_ETC_D="$CMDLINE_ETC_D $_line";
         done <"$_i";
     done
     if [ -e /proc/cmdline ]; then
-        read -r CMDLINE </proc/cmdline;
-        CMDLINE="$CMDLINE_ETC_D $CMDLINE_ETC $CMDLINE"
+        while read -r _line || [ -n "$_line" ]; do
+            CMDLINE_PROC="$CMDLINE_PROC $_line"
+        done </proc/cmdline;
+        CMDLINE="$CMDLINE_ETC_D $CMDLINE_ETC $CMDLINE_PROC"
     fi
     printf "%s" "$CMDLINE"
 }
@@ -503,7 +506,7 @@ incol2() {
     [ -z "$file" ] && return 1;
     [ -z "$str"  ] && return 1;
 
-    while read dummy check restofline; do
+    while read dummy check restofline || [ -n "$check" ]; do
         if [ "$check" = "$str" ]; then
             debug_on
             return 0
@@ -536,7 +539,7 @@ udevproperty() {
 find_mount() {
     local dev mnt etc wanted_dev
     wanted_dev="$(readlink -e -q $1)"
-    while read dev mnt etc; do
+    while read dev mnt etc || [ -n "$dev" ]; do
         [ "$dev" = "$wanted_dev" ] && echo "$dev" && return 0
     done < /proc/mounts
     return 1
@@ -555,7 +558,7 @@ else
             return 1
         fi
 
-        while read a m a; do
+        while read a m a || [ -n "$m" ]; do
             [ "$m" = "$1" ] && return 0
         done < /proc/mounts
         return 1
@@ -886,18 +889,18 @@ dev_unit_name()
     dev="${dev##/}"
     dev="$(str_replace "$dev" '\' '\x5c')"
     dev="$(str_replace "$dev" '-' '\x2d')"
-    dev=${dev/#\./\\x2e}
+    if [ "${dev##.}" != "$dev" ]; then
+        dev="\x2e${dev##.}"
+    fi
     dev="$(str_replace "$dev" '/' '-')"
 
     printf -- "%s" "$dev"
 }
 
-# wait_for_dev <dev>
-#
-# Installs a initqueue-finished script,
-# which will cause the main loop only to exit,
-# if the device <dev> is recognized by the system.
-wait_for_dev()
+# set_systemd_timeout_for_dev <dev>
+# Set 'rd.timeout' as the systemd timeout for <dev>
+
+set_systemd_timeout_for_dev()
 {
     local _name
     local _needreload
@@ -911,19 +914,6 @@ wait_for_dev()
 
     _timeout=$(getarg rd.timeout)
     _timeout=${_timeout:-0}
-
-    _name="$(str_replace "$1" '/' '\x2f')"
-
-    type mark_hostonly >/dev/null 2>&1 && mark_hostonly "$hookdir/initqueue/finished/devexists-${_name}.sh"
-
-    [ -e "${PREFIX}$hookdir/initqueue/finished/devexists-${_name}.sh" ] && return 0
-
-    printf '[ -e "%s" ]\n' $1 \
-        >> "${PREFIX}$hookdir/initqueue/finished/devexists-${_name}.sh"
-    {
-        printf '[ -e "%s" ] || ' $1
-        printf 'warn "\"%s\" does not exist"\n' $1
-    } >> "${PREFIX}$hookdir/emergency/80-${_name}.sh"
 
     if [ -n "$DRACUT_SYSTEMD" ]; then
         _name=$(dev_unit_name "$1")
@@ -948,6 +938,36 @@ wait_for_dev()
             /sbin/initqueue --onetime --unique --name daemon-reload systemctl daemon-reload
         fi
     fi
+}
+# wait_for_dev <dev>
+#
+# Installs a initqueue-finished script,
+# which will cause the main loop only to exit,
+# if the device <dev> is recognized by the system.
+wait_for_dev()
+{
+    local _name
+    local _noreload
+
+    if [ "$1" = "-n" ]; then
+        _noreload=-n
+        shift
+    fi
+
+    _name="$(str_replace "$1" '/' '\x2f')"
+
+    type mark_hostonly >/dev/null 2>&1 && mark_hostonly "$hookdir/initqueue/finished/devexists-${_name}.sh"
+
+    [ -e "${PREFIX}$hookdir/initqueue/finished/devexists-${_name}.sh" ] && return 0
+
+    printf '[ -e "%s" ]\n' $1 \
+        >> "${PREFIX}$hookdir/initqueue/finished/devexists-${_name}.sh"
+    {
+        printf '[ -e "%s" ] || ' $1
+        printf 'warn "\"%s\" does not exist"\n' $1
+    } >> "${PREFIX}$hookdir/emergency/80-${_name}.sh"
+
+    set_systemd_timeout_for_dev $_noreload $1
 }
 
 cancel_wait_for_dev()
@@ -1004,7 +1024,7 @@ wait_for_loginit()
 
     if [ $i -eq 10 ]; then
         kill %1 >/dev/null 2>&1
-        kill $(while read line;do echo $line;done</run/initramfs/loginit.pid)
+        kill $(while read line || [ -n "$line" ];do echo $line;done</run/initramfs/loginit.pid)
     fi
 
     setdebug
@@ -1286,8 +1306,8 @@ show_memstats()
 remove_hostonly_files() {
     rm -fr /etc/cmdline /etc/cmdline.d/*.conf
     if [ -f /lib/dracut/hostonly-files ]; then
-        while read line; do
-            [ -e "$line" ] || continue
+        while read line || [ -n "$line" ]; do
+            [ -e "$line" ] || [ -h "$line" ] || continue
             rm -f "$line"
         done < /lib/dracut/hostonly-files
     fi

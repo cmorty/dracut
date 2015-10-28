@@ -17,9 +17,9 @@ client_run() {
 
     dd if=/dev/zero of=$TESTDIR/result bs=1M count=1
     $testdir/run-qemu \
-	-hda $TESTDIR/root.btrfs \
-	-hdb $TESTDIR/usr.btrfs \
-	-hdc $TESTDIR/result \
+	-drive format=raw,index=0,media=disk,file=$TESTDIR/root.btrfs \
+	-drive format=raw,index=1,media=disk,file=$TESTDIR/usr.btrfs \
+	-drive format=raw,index=2,media=disk,file=$TESTDIR/result \
 	-m 256M -smp 2 -nographic \
 	-net none \
 	-append "root=LABEL=dracut $client_opts rd.retry=3 console=ttyS0,115200n81 selinux=0 $DEBUGOUT $DEBUGFAIL" \
@@ -163,7 +163,7 @@ EOF
             /etc/security \
             /lib64/security \
             /lib/security -xtype f \
-            | while read file; do
+            | while read file || [ -n "$file" ]; do
             inst_multiple -o $file
         done
 
@@ -193,7 +193,7 @@ EOF
 
         # install any Execs from the service files
         egrep -ho '^Exec[^ ]*=[^ ]+' $initdir/lib/systemd/system/*.service \
-            | while read i; do
+            | while read i || [ -n "$i" ]; do
             i=${i##Exec*=}; i=${i##-}
             inst_multiple -o $i
         done
@@ -244,8 +244,8 @@ EOF
     rm -rf -- $TESTDIR/overlay
 
     $testdir/run-qemu \
-	-hda $TESTDIR/root.btrfs \
-	-hdb $TESTDIR/usr.btrfs \
+	-drive format=raw,index=0,media=disk,file=$TESTDIR/root.btrfs \
+	-drive format=raw,index=1,media=disk,file=$TESTDIR/usr.btrfs \
 	-m 256M -smp 2 -nographic -net none \
 	-append "root=/dev/fakeroot rw rootfstype=btrfs quiet console=ttyS0,115200n81 selinux=0" \
 	-initrd $TESTDIR/initramfs.makeroot  || return 1
@@ -262,7 +262,7 @@ EOF
     sudo $basedir/dracut.sh -l -i $TESTDIR/overlay / \
 	-a "debug systemd" \
 	-I "/etc/machine-id /etc/hostname" \
-        -o "dash network plymouth lvm mdraid resume crypt i18n caps dm terminfo usrmount" \
+        -o "dash network plymouth lvm mdraid resume crypt i18n caps dm terminfo usrmount kernel-network-modules" \
 	-d "piix ide-gd_mod ata_piix btrfs sd_mod i6300esb ib700wdt" \
         --no-hostonly-cmdline -N \
 	-f $TESTDIR/initramfs.testing $KVERSION || return 1

@@ -309,7 +309,7 @@ get_fs_env() {
     [[ $1 ]] || return
     unset ID_FS_TYPE
     ID_FS_TYPE=$(blkid -u filesystem -o export -- "$1" \
-        | while read line; do
+        | while read line || [ -n "$line" ]; do
             if [[ "$line" == TYPE\=* ]]; then
                 printf "%s" "${line#TYPE=}";
                 exit 0;
@@ -435,7 +435,7 @@ find_block_device() {
     if [[ $use_fstab != yes ]]; then
         [[ -d $_find_mpt/. ]]
         findmnt -e -v -n -o 'MAJ:MIN,SOURCE' --target "$_find_mpt" | { \
-            while read _majmin _dev; do
+            while read _majmin _dev || [ -n "$_dev" ]; do
                 if [[ -b $_dev ]]; then
                     if ! [[ $_majmin ]] || [[ $_majmin == 0:* ]]; then
                         _majmin=$(get_maj_min $_dev)
@@ -456,7 +456,7 @@ find_block_device() {
     # fall back to /etc/fstab
 
     findmnt -e --fstab -v -n -o 'MAJ:MIN,SOURCE' --target "$_find_mpt" | { \
-        while read _majmin _dev; do
+        while read _majmin _dev || [ -n "$_dev" ]; do
             if ! [[ $_dev ]]; then
                 _dev="$_majmin"
                 unset _majmin
@@ -492,7 +492,7 @@ find_mp_fstype() {
 
     if [[ $use_fstab != yes ]]; then
         findmnt -e -v -n -o 'FSTYPE' --target "$1" | { \
-            while read _fs; do
+            while read _fs || [ -n "$_fs" ]; do
                 [[ $_fs ]] || continue
                 [[ $_fs = "autofs" ]] && continue
                 printf "%s" "$_fs"
@@ -501,7 +501,7 @@ find_mp_fstype() {
     fi
 
     findmnt --fstab -e -v -n -o 'FSTYPE' --target "$1" | { \
-        while read _fs; do
+        while read _fs || [ -n "$_fs" ]; do
             [[ $_fs ]] || continue
             [[ $_fs = "autofs" ]] && continue
             printf "%s" "$_fs"
@@ -528,7 +528,7 @@ find_dev_fstype() {
 
     if [[ $use_fstab != yes ]]; then
         findmnt -e -v -n -o 'FSTYPE' --source "$_find_dev" | { \
-            while read _fs; do
+            while read _fs || [ -n "$_fs" ]; do
                 [[ $_fs ]] || continue
                 [[ $_fs = "autofs" ]] && continue
                 printf "%s" "$_fs"
@@ -537,7 +537,7 @@ find_dev_fstype() {
     fi
 
     findmnt --fstab -e -v -n -o 'FSTYPE' --source "$_find_dev" | { \
-        while read _fs; do
+        while read _fs || [ -n "$_fs" ]; do
             [[ $_fs ]] || continue
             [[ $_fs = "autofs" ]] && continue
             printf "%s" "$_fs"
@@ -977,7 +977,7 @@ inst_rules_wildcard() {
             _found=$_rule
         fi
     done
-    if [ -n ${hostonly} ] ; then
+    if [[ -n ${hostonly} ]] ; then
         for _rule in ${_target}/$1 ; do
             if [[ -f $_rule ]]; then
                 inst_rule_programs "$_rule"
@@ -997,7 +997,7 @@ prepare_udev_rules() {
     for f in "$@"; do
         f="${initdir}/etc/udev/rules.d/$f"
         [ -e "$f" ] || continue
-        while read line; do
+        while read line || [ -n "$line" ]; do
             if [ "${line%%IMPORT PATH_ID}" != "$line" ]; then
                 if [ $UDEVVERSION -ge 174 ]; then
                     printf '%sIMPORT{builtin}="path_id"\n' "${line%%IMPORT PATH_ID}"
@@ -1130,7 +1130,7 @@ inst_opt_decompress() {
 # or the "check" script, if module-setup.sh is not found
 # "check $hostonly" is called
 module_check() {
-    local _moddir=$(echo ${dracutbasedir}/modules.d/??${1})
+    local _moddir=$(echo ${dracutbasedir}/modules.d/??${1} | { read a b; echo "$a"; })
     local _ret
     local _forced=0
     local _hostonly=$hostonly
@@ -1161,7 +1161,7 @@ module_check() {
 # or the "check" script, if module-setup.sh is not found
 # "mount_needs=1 check 0" is called
 module_check_mount() {
-    local _moddir=$(echo ${dracutbasedir}/modules.d/??${1})
+    local _moddir=$(echo ${dracutbasedir}/modules.d/??${1} | { read a b; echo "$a"; })
     local _ret
     mount_needs=1
     [[ -d $_moddir ]] || return 1
@@ -1186,7 +1186,7 @@ module_check_mount() {
 # execute the depends() function of module-setup.sh of <dracut module>
 # or the "depends" script, if module-setup.sh is not found
 module_depends() {
-    local _moddir=$(echo ${dracutbasedir}/modules.d/??${1})
+    local _moddir=$(echo ${dracutbasedir}/modules.d/??${1} | { read a b; echo "$a"; })
     local _ret
     [[ -d $_moddir ]] || return 1
     if [[ ! -f $_moddir/module-setup.sh ]]; then
@@ -1209,7 +1209,7 @@ module_depends() {
 # execute the cmdline() function of module-setup.sh of <dracut module>
 # or the "cmdline" script, if module-setup.sh is not found
 module_cmdline() {
-    local _moddir=$(echo ${dracutbasedir}/modules.d/??${1})
+    local _moddir=$(echo ${dracutbasedir}/modules.d/??${1} | { read a b; echo "$a"; })
     local _ret
     [[ -d $_moddir ]] || return 1
     if [[ ! -f $_moddir/module-setup.sh ]]; then
@@ -1230,7 +1230,7 @@ module_cmdline() {
 # execute the install() function of module-setup.sh of <dracut module>
 # or the "install" script, if module-setup.sh is not found
 module_install() {
-    local _moddir=$(echo ${dracutbasedir}/modules.d/??${1})
+    local _moddir=$(echo ${dracutbasedir}/modules.d/??${1} | { read a b; echo "$a"; })
     local _ret
     [[ -d $_moddir ]] || return 1
     if [[ ! -f $_moddir/module-setup.sh ]]; then
@@ -1251,7 +1251,7 @@ module_install() {
 # execute the installkernel() function of module-setup.sh of <dracut module>
 # or the "installkernel" script, if module-setup.sh is not found
 module_installkernel() {
-    local _moddir=$(echo ${dracutbasedir}/modules.d/??${1})
+    local _moddir=$(echo ${dracutbasedir}/modules.d/??${1} | { read a b; echo "$a"; })
     local _ret
     [[ -d $_moddir ]] || return 1
     if [[ ! -f $_moddir/module-setup.sh ]]; then
@@ -1273,7 +1273,7 @@ module_installkernel() {
 # device and filesystem types in "${host_fs_types[@]}"
 check_mount() {
     local _mod=$1
-    local _moddir=$(echo ${dracutbasedir}/modules.d/??${1})
+    local _moddir=$(echo ${dracutbasedir}/modules.d/??${1} | { read a b; echo "$a"; })
     local _ret
     local _moddep
 
@@ -1338,7 +1338,7 @@ check_mount() {
 # that the modules were checked for the dependency tracking process
 check_module() {
     local _mod=$1
-    local _moddir=$(echo ${dracutbasedir}/modules.d/??${1})
+    local _moddir=$(echo ${dracutbasedir}/modules.d/??${1} | { read a b; echo "$a"; })
     local _ret
     local _moddep
     # If we are already scheduled to be loaded, no need to check again.
@@ -1512,7 +1512,7 @@ for_each_kmod_dep() {
     local _func=$1 _kmod=$2 _cmd _modpath _options
     shift 2
     modprobe "$@" --ignore-install --show-depends $_kmod 2>&${_fderr} | (
-        while read _cmd _modpath _options; do
+        while read _cmd _modpath _options || [ -n "$_cmd" ]; do
             [[ $_cmd = insmod ]] || continue
             $_func ${_modpath} || exit $?
         done
@@ -1528,7 +1528,7 @@ dracut_kernel_post() {
             --ignore-install --show-depends --set-version $kernel \
             < "$DRACUT_KERNEL_LAZY_HASHDIR/lazylist" 2>/dev/null \
             | sort -u \
-            | while read _cmd _modpath _options; do
+            | while read _cmd _modpath _options || [ -n "$_cmd" ]; do
             [[ $_cmd = insmod ]] || continue
             echo "$_modpath"
         done > "$DRACUT_KERNEL_LAZY_HASHDIR/lazylist.dep"
@@ -1537,7 +1537,7 @@ dracut_kernel_post() {
             if [[ $DRACUT_INSTALL ]] && [[ -z $_moddirname ]]; then
                 xargs -r $DRACUT_INSTALL ${initdir:+-D "$initdir"} ${loginstall:+-L "$loginstall"} -a < "$DRACUT_KERNEL_LAZY_HASHDIR/lazylist.dep"
             else
-                while read _modpath; do
+                while read _modpath || [ -n "$_modpath" ]; do
                     local _destpath=$_modpath
                     [[ $_moddirname ]] && _destpath=${_destpath##$_moddirname/}
                     _destpath=${_destpath##*/lib/modules/$kernel/}
@@ -1545,12 +1545,12 @@ dracut_kernel_post() {
                 done < "$DRACUT_KERNEL_LAZY_HASHDIR/lazylist.dep"
             fi
         ) &
-        _pid=$(jobs -p | while read a ; do printf ":$a";done)
+        _pid=$(jobs -p | while read a  || [ -n "$a" ]; do printf ":$a";done)
         _pid=${_pid##*:}
 
         if [[ $DRACUT_INSTALL ]]; then
             xargs -r modinfo -k $kernel -F firmware < "$DRACUT_KERNEL_LAZY_HASHDIR/lazylist.dep" \
-                | while read line; do
+                | while read line || [ -n "$line" ]; do
                 for _fwdir in $fw_dir; do
                     echo $_fwdir/$line;
                 done;
@@ -1635,7 +1635,7 @@ find_kernel_modules_by_path () {
 
     _OLDIFS=$IFS
     IFS=:
-    while read a rest; do
+    while read a rest || [ -n "$a" ]; do
         [[ $a = */$1/* ]] || [[ $a = updates/* ]] || continue
         printf "%s\n" "$srcmods/$a"
     done < "$srcmods/modules.dep"
@@ -1730,7 +1730,7 @@ instmods() {
     function instmods_1() {
         local _mod _mpargs
         if (($# == 0)); then  # filenames from stdin
-            while read _mod; do
+            while read _mod || [ -n "$_mod" ]; do
                 inst1mod "${_mod%.ko*}" || {
                     if [[ "$_check" == "yes" ]] && [[ "$_silent" == "no" ]]; then
                         dfatal "Failed to install module $_mod"
@@ -1753,7 +1753,7 @@ instmods() {
     # Capture all stderr from modprobe to _fderr. We could use {var}>...
     # redirections, but that would make dracut require bash4 at least.
     eval "( instmods_1 \"\$@\" ) ${_fderr}>&1" \
-        | while read line; do [[ "$line" =~ $_filter_not_found ]] || echo $line;done | derror
+        | while read line || [ -n "$line" ]; do [[ "$line" =~ $_filter_not_found ]] || echo $line;done | derror
     _ret=$?
     return $_ret
 }

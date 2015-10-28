@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash --norc
 #
 # Generator script for a dracut initramfs
 # Tries to retain some degree of compatibility with the command line
@@ -195,6 +195,10 @@ Creates initial ramdisk images for preloading modules
   --logfile [FILE]      Logfile to use (overrides configuration setting)
   --reproducible        Create reproducible images
   --loginstall [DIR]    Log all files installed from the host to [DIR]
+  --uefi                Create an UEFI executable with the kernel cmdline and
+                        kernel combined
+  --uefi-stub [FILE]    Use the UEFI stub [FILE] to create an UEFI executable
+  --kernel-image [FILE] location of the kernel image
 
 If [LIST] has multiple arguments, then you have to put these in quotes.
 
@@ -389,6 +393,9 @@ rearrange_params()
         --long no-early-microcode \
         --long reproducible \
         --long loginstall: \
+        --long uefi \
+        --long uefi-stub: \
+        --long kernel-image: \
         -- "$@")
 
     if (( $? != 0 )); then
@@ -577,6 +584,11 @@ while :; do
         --regenerate-all) regenerate_all="yes";;
         --noimageifnotneeded) noimageifnotneeded="yes";;
         --reproducible) reproducible_l="yes";;
+        --uefi)        uefi="yes";;
+        --uefi-stub)
+                       uefi_stub_l="$2";               PARMS_TO_STORE+=" '$2'"; shift;;
+        --kernel-image)
+                       kernel_image_l="$2";            PARMS_TO_STORE+=" '$2'"; shift;;
         --) shift; break;;
 
         *)  # should not even reach this point
@@ -809,7 +821,7 @@ stdloglvl=$((stdloglvl + verbosity_mod_l))
 [[ $mdadmconf_l ]] && mdadmconf=$mdadmconf_l
 [[ $lvmconf_l ]] && lvmconf=$lvmconf_l
 [[ $dracutbasedir ]] || dracutbasedir=/usr/lib/dracut
-[[ $fw_dir ]] || fw_dir="/lib/firmware/updates /lib/firmware"
+[[ $fw_dir ]] || fw_dir="/lib/firmware/updates /lib/firmware /lib/firmware/$kernel"
 [[ $tmpdir_l ]] && tmpdir="$tmpdir_l"
 [[ $tmpdir ]] || tmpdir=/var/tmp
 [[ $INITRD_COMPRESS ]] && compress=$INITRD_COMPRESS
@@ -822,6 +834,8 @@ stdloglvl=$((stdloglvl + verbosity_mod_l))
 [[ $logfile_l ]] && logfile="$logfile_l"
 [[ $reproducible_l ]] && reproducible="$reproducible_l"
 [[ $loginstall_l ]] && loginstall="$loginstall_l"
+[[ $uefi_stub_l ]] && uefi_stub="$uefi_stub_l"
+[[ $kernel_image_l ]] && kernel_image="$kernel_image_l"
 
 # eliminate IFS hackery when messing with fw_dir
 fw_dir=${fw_dir//:/ }
@@ -839,7 +853,8 @@ fi
 # handle compression options.
 [[ $compress ]] || compress="gzip"
 case $compress in
-    bzip2) compress="bzip2 -9";;
+    bzip2) compress="bzip2 -9";
+        command -v lbzip2 > /dev/null 2>&1 && compress="lbzip2 -9";;
     lzma)  compress="lzma -9 -T0";;
     xz)    compress="xz --check=crc32 --lzma2=dict=1MiB -T0";;
     gzip)  compress="gzip -n -9";
@@ -880,6 +895,7 @@ trap '
     ret=$?;
     [[ $keep ]] && echo "Not removing $initdir." >&2 || { [[ $initdir ]] && rm -rf -- "$initdir"; };
     [[ $keep ]] && echo "Not removing $early_cpio_dir." >&2 || { [[ $early_cpio_dir ]] && rm -Rf -- "$early_cpio_dir"; };
+    [[ $keep ]] && echo "Not removing $uefi_outdir." >&2 || { [[ $uefi_outdir ]] && rm -Rf -- "$uefi_outdir"; };
     [[ $_dlogdir ]] && rm -Rf -- "$_dlogdir";
     exit $ret;
     ' EXIT
@@ -919,7 +935,7 @@ if ! [[ $print_cmdline ]]; then
     rm -fr -- ${initdir}/*
 fi
 
-# Verify bash version, current minimum is 3.1
+# Verify bash version, current minimum is 4
 if (( BASH_VERSINFO[0] < 4 )); then
     dfatal 'You need at least Bash 4 to use dracut, sorry.'
     exit 1
@@ -1031,6 +1047,48 @@ if [[ ! $print_cmdline ]]; then
         fi
         loginstall=$(readlink -f "$loginstall")
     fi
+
+    if [[ $uefi = yes ]]; then
+        if ! command -v objcopy &>/dev/null; then
+            dfatal "Need 'objcopy' to create a UEFI executable"
+            exit 1
+        fi
+        unset EFI_MACHINE_TYPE_NAME
+        case $(arch) in
+            x86_64)
+                EFI_MACHINE_TYPE_NAME=x64;;
+            ia32)
+                EFI_MACHINE_TYPE_NAME=ia32;;
+            *)
+                dfatal "Architecture '$(arch)' not supported to create a UEFI executable"
+                exit 1
+                ;;
+        esac
+
+        if ! [[ -s $uefi_stub ]]; then
+            for uefi_stub in \
+                "/lib/systemd/boot/efi/linux${EFI_MACHINE_TYPE_NAME}.efi.stub" \
+                    "/usr/lib/gummiboot/linux${EFI_MACHINE_TYPE_NAME}.efi.stub"; do
+                [[ -s $uefi_stub ]] || continue
+                break
+            done
+        fi
+        if ! [[ -s $uefi_stub ]]; then
+            dfatal "Can't find a uefi stub '$uefi_stub' to create a UEFI executable"
+            exit 1
+        fi
+
+        if ! [[ $kernel_image ]]; then
+            for kernel_image in "/lib/modules/$kernel/vmlinuz" "/boot/vmlinuz-$kernel"; do
+                [[ -s "$kernel_image" ]] || continue
+                break
+            done
+        fi
+        if ! [[ -s $kernel_image ]]; then
+            dfatal "Can't find a kernel image '$kernel_image' to create a UEFI executable"
+            exit 1
+        fi
+    fi
 fi
 
 if [[ $acpi_override = yes ]] && ! check_kernel_config CONFIG_ACPI_INITRD_TABLE_OVERRIDE; then
@@ -1094,7 +1152,7 @@ done
 
 for f in $add_fstab; do
     [[ -e $f ]] || continue
-    while read dev rest; do
+    while read dev rest || [ -n "$dev" ]; do
         push_host_devs "$dev"
     done < "$f"
 done
@@ -1141,11 +1199,11 @@ if [[ $hostonly ]]; then
     done
 
     if [[ -f /proc/swaps ]] && [[ -f /etc/fstab ]]; then
-        while read dev type rest; do
+        while read dev type rest || [ -n "$dev" ]; do
             [[ -b $dev ]] || continue
             [[ "$type" == "partition" ]] || continue
 
-            while read _d _m _t _o _r; do
+            while read _d _m _t _o _r || [ -n "$_d" ]; do
                 [[ "$_d" == \#* ]] && continue
                 [[ $_d ]] || continue
                 [[ $_t != "swap" ]] && continue
@@ -1155,7 +1213,7 @@ if [[ $hostonly ]]; then
                 [[ "$_d" -ef "$dev" ]] || continue
 
                 if [[ -f /etc/crypttab ]]; then
-                    while read _mapper _a _p _o; do
+                    while read _mapper _a _p _o || [ -n "$_mapper" ]; do
                         [[ $_mapper = \#* ]] && continue
                         [[ "$_d" -ef /dev/mapper/"$_mapper" ]] || continue
                         [[ "$_o" ]] || _o="$_p"
@@ -1166,7 +1224,9 @@ if [[ $hostonly ]]; then
                     done < /etc/crypttab
                 fi
 
-                push_host_devs "$(readlink -f "$dev")"
+                _dev="$(readlink -f "$dev")"
+                push_host_devs "$_dev"
+                push swap_devs "$_dev"
                 break
             done < /etc/fstab
         done < /proc/swaps
@@ -1174,8 +1234,8 @@ if [[ $hostonly ]]; then
     # record all host modaliases
     declare -A host_modalias
     find  /sys/devices/ -name uevent -print > "$initdir/.modalias"
-    while read m; do
-        while read line; do
+    while read m || [ -n "$m" ]; do
+        while read line || [ -n "$line" ]; do
             [[ "$line" != MODALIAS\=* ]] && continue
             modalias="${line##MODALIAS=}" && [[ $modalias ]] && host_modalias["$modalias"]=1
             break
@@ -1184,14 +1244,14 @@ if [[ $hostonly ]]; then
 
     rm -f -- "$initdir/.modalias"
 
-    while read _k _s _v; do
+    while read _k _s _v || [ -n "$_k" ]; do
         [ "$_k" != "name" -a "$_k" != "driver" ] && continue
         host_modalias["$_v"]=1
     done </proc/crypto
 
     # check /proc/modules
     declare -A host_modules
-    while read m rest; do
+    while read m rest || [ -n "$m" ]; do
         host_modules["$m"]=1
     done </proc/modules
 fi
@@ -1277,7 +1337,7 @@ export initdir dracutbasedir \
     omit_drivers mdadmconf lvmconf root_dev \
     use_fstab fstab_lines libdirs fscks nofscks ro_mnt \
     stdloglvl sysloglvl fileloglvl kmsgloglvl logfile \
-    debug host_fs_types host_devs sshkey add_fstab \
+    debug host_fs_types host_devs swap_devs sshkey add_fstab \
     DRACUT_VERSION udevdir prefix filesystems drivers \
     systemdutildir systemdsystemunitdir systemdsystemconfdir \
     host_modalias host_modules hostonly_cmdline loginstall \
@@ -1291,14 +1351,24 @@ for_each_module_dir check_mount
 
 dracut_module_included "fips" && export DRACUT_FIPS_MODE=1
 
-if [[ $print_cmdline ]]; then
-    modules_loaded=" "
+do_print_cmdline()
+{
+    local -A _mods_to_print
+    for i in $modules_loaded $mods_to_load; do
+        _mods_to_print[$i]=1
+    done
+
     # source our modules.
     for moddir in "$dracutbasedir/modules.d"/[0-9][0-9]*; do
         _d_mod=${moddir##*/}; _d_mod=${_d_mod#[0-9][0-9]}
+        [[ ${_mods_to_print[$_d_mod]} ]] || continue
         module_cmdline "$_d_mod"
     done
     unset moddir
+}
+
+if [[ $print_cmdline ]]; then
+    do_print_cmdline
     printf "\n"
     exit 0
 fi
@@ -1317,7 +1387,7 @@ if [[ $prefix ]]; then
 fi
 
 if [[ $kernel_only != yes ]]; then
-    for d in usr/bin usr/sbin bin etc lib sbin tmp usr var $libdirs; do
+    for d in usr/bin usr/sbin bin etc lib sbin tmp usr var var/tmp $libdirs; do
         [[ -e "${initdir}${prefix}/$d" ]] && continue
         if [ -L "/$d" ]; then
             inst_symlink "/$d" "${prefix}/$d"
@@ -1364,36 +1434,35 @@ modules_loaded=" "
 # source our modules.
 for moddir in "$dracutbasedir/modules.d"/[0-9][0-9]*; do
     _d_mod=${moddir##*/}; _d_mod=${_d_mod#[0-9][0-9]}
-    if [[ "$mods_to_load" == *\ $_d_mod\ * ]]; then
-        if [[ $show_modules = yes ]]; then
-            printf "%s\n" "$_d_mod"
-        else
-            dinfo "*** Including module: $_d_mod ***"
-        fi
-        if [[ $kernel_only == yes ]]; then
+    [[ "$mods_to_load" == *\ $_d_mod\ * ]] || continue
+    if [[ $show_modules = yes ]]; then
+        printf "%s\n" "$_d_mod"
+    else
+        dinfo "*** Including module: $_d_mod ***"
+    fi
+    if [[ $kernel_only == yes ]]; then
+        module_installkernel "$_d_mod" || {
+            dfatal "installkernel failed in module $_d_mod"
+            exit 1
+        }
+    else
+        module_install "$_d_mod"
+        if [[ $no_kernel != yes ]]; then
             module_installkernel "$_d_mod" || {
                 dfatal "installkernel failed in module $_d_mod"
                 exit 1
             }
-        else
-            module_install "$_d_mod"
-            if [[ $no_kernel != yes ]]; then
-                module_installkernel "$_d_mod" || {
-                    dfatal "installkernel failed in module $_d_mod"
-                    exit 1
-                }
-            fi
         fi
-        mods_to_load=${mods_to_load// $_d_mod /}
-        modules_loaded+="$_d_mod "
+    fi
+    mods_to_load=${mods_to_load// $_d_mod /}
+    modules_loaded+="$_d_mod "
 
-        #print the module install size
-        if [ -n "$printsize" ]; then
-            _isize_new=$(du -sk ${initdir}|cut -f1)
-            _isize_delta=$((_isize_new - _isize))
-            printf "%s\n" "$_d_mod install size: ${_isize_delta}k"
-            _isize=$_isize_new
-        fi
+    #print the module install size
+    if [ -n "$printsize" ]; then
+        _isize_new=$(du -sk ${initdir}|cut -f1)
+        _isize_delta=$((_isize_new - _isize))
+        printf "%s\n" "$_d_mod install size: ${_isize_delta}k"
+        _isize=$_isize_new
     fi
 done
 unset moddir
@@ -1452,6 +1521,7 @@ if [[ $kernel_only != yes ]]; then
         [ -z "${line[3]}" ] && line[3]="defaults"
         [ -z "${line[4]}" ] && line[4]="0"
         [ -z "${line[5]}" ] && line[5]="2"
+        strstr "${line[2]}" "nfs" && line[5]="0"
         echo "${line[@]}" >> "${initdir}/etc/fstab"
     done
 
@@ -1485,27 +1555,29 @@ if [[ $kernel_only != yes ]]; then
     done
 fi
 
-while pop include_src src && pop include_target tgt; do
-    if [[ $src && $tgt ]]; then
+while pop include_src src && pop include_target target; do
+    if [[ $src && $target ]]; then
         if [[ -f $src ]]; then
-            inst $src $tgt
+            inst $src $target
         else
             ddebug "Including directory: $src"
-            destdir="${initdir}/${tgt}"
+            destdir="${initdir}/${target}"
             mkdir -p "$destdir"
             # check for preexisting symlinks, so we can cope with the
             # symlinks to $prefix
-            for i in "$src"/*; do
-                [[ -e "$i" || -h "$i" ]] || continue
-                s=${destdir}/${i#$src/}
-                if [[ -d "$i" ]]; then
-                    if ! [[ -e "$s" ]]; then
-                        mkdir -m 0755 -p "$s"
-                        chmod --reference="$i" "$s"
+            # Objectname is a file or a directory
+            for objectname in "$src"/*; do
+                [[ -e "$objectname" || -h "$objectname" ]] || continue
+                if [[ -d "$objectname" ]]; then
+                    # objectname is a directory, let's compute the final directory name
+                    object_destdir=${destdir}/${objectname#$src/}
+                    if ! [[ -e "$object_destdir" ]]; then
+                        mkdir -m 0755 -p "$object_destdir"
+                        chmod --reference="$objectname" "$object_destdir"
                     fi
-                    cp --reflink=auto --sparse=auto -fa -t "$s" "$i"/*
+                    cp --reflink=auto --sparse=auto -fa -t "$object_destdir" "$objectname"/*
                 else
-                    cp --reflink=auto --sparse=auto -fa -t "$destdir" "$i"
+                    cp --reflink=auto --sparse=auto -fa -t "$destdir" "$objectname"
                 fi
             done
         fi
@@ -1565,7 +1637,7 @@ if [[ $do_strip = yes ]] && ! [[ $DRACUT_FIPS_MODE ]]; then
 
     # strip kernel modules, but do not touch signed modules
     find "$initdir" -type f -path '*/lib/modules/*.ko' -print0 \
-        | while read -r -d $'\0' f; do
+        | while read -r -d $'\0' f || [ -n "$f" ]; do
         SIG=$(tail -c 28 "$f")
         [[ $SIG == '~Module signature appended~' ]] || { printf "%s\000" "$f"; }
     done | xargs -r -0 strip -g
@@ -1634,7 +1706,14 @@ if [[ $hostonly_cmdline ]] ; then
     fi
 fi
 rm -f -- "$outfile"
-dinfo "*** Creating image file ***"
+dinfo "*** Creating image file '$outfile' ***"
+
+if [[ $uefi = yes ]]; then
+    uefi_outfile="$outfile"
+    readonly uefi_outdir="$(mktemp --tmpdir="$TMPDIR/" -d -t initrd.XXXXXX)"
+    # redirect initrd output
+    outfile="$uefi_outdir/initrd"
+fi
 
 if [[ $DRACUT_REPRODUCIBLE ]]; then
     find "$initdir" -newer "$dracutbasedir/dracut-functions.sh" -print0 \
@@ -1670,7 +1749,7 @@ if ! (
     dfatal "dracut: creation of $outfile failed"
     exit 1
 fi
-dinfo "*** Creating image file done ***"
+dinfo "*** Creating initrd image file '$outfile' done ***"
 
 if (( maxloglvl >= 5 )); then
     if [[ $allowlocal ]]; then
@@ -1678,6 +1757,34 @@ if (( maxloglvl >= 5 )); then
     else
         lsinitrd "$outfile"| ddebug
     fi
+fi
+
+if [[ $uefi = yes ]]; then
+    if [[ $kernel_cmdline ]]; then
+        echo -n "$kernel_cmdline" > "$uefi_outdir/cmdline.txt"
+    elif [[ $hostonly_cmdline = yes ]] && [ -d $initdir/etc/cmdline.d ];then
+        for conf in $initdir/etc/cmdline.d/*.conf ; do
+            [ -e "$conf" ] || continue
+            printf "%s " "$(< $conf)" >> "$uefi_outdir/cmdline.txt"
+        done
+    else
+        do_print_cmdline > "$uefi_outdir/cmdline.txt"
+    fi
+    echo -ne "\x00" >> "$uefi_outdir/cmdline.txt"
+
+    dinfo "Using UEFI kernel cmdline:"
+    dinfo $(< "$uefi_outdir/cmdline.txt")
+
+    [[ -s /usr/lib/os-release ]] && uefi_osrelease="/usr/lib/os-release"
+    [[ -s /etc/os-release ]] && uefi_osrelease="/etc/os-release"
+
+    objcopy \
+        ${uefi_osrelease:+--add-section .osrel=$uefi_osrelease --change-section-vma .osrel=0x20000} \
+        --add-section .cmdline="$uefi_outdir/cmdline.txt" --change-section-vma .cmdline=0x30000 \
+        --add-section .linux="$kernel_image" --change-section-vma .linux=0x40000 \
+        --add-section .initrd="$outfile" --change-section-vma .initrd=0x3000000 \
+        "$uefi_stub" "$uefi_outfile"
+    dinfo "*** Creating UEFI image file '$uefi_outfile' done ***"
 fi
 
 exit 0

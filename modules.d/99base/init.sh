@@ -38,7 +38,7 @@ RD_DEBUG=""
 setdebug
 
 if ! ismounted /dev; then
-    mount -t devtmpfs -o mode=0755,nosuid,strictatime devtmpfs /dev >/dev/null
+    mount -t devtmpfs -o mode=0755,noexec,nosuid,strictatime devtmpfs /dev >/dev/null
 fi
 
 if ! ismounted /dev; then
@@ -59,12 +59,12 @@ fi
 
 if ! ismounted /dev/shm; then
     mkdir -m 0755 /dev/shm
-    mount -t tmpfs -o mode=1777,nosuid,nodev,strictatime tmpfs /dev/shm >/dev/null
+    mount -t tmpfs -o mode=1777,noexec,nosuid,nodev,strictatime tmpfs /dev/shm >/dev/null
 fi
 
 if ! ismounted /run; then
     mkdir -m 0755 /newrun
-    mount -t tmpfs -o mode=0755,nosuid,nodev,strictatime tmpfs /newrun >/dev/null
+    mount -t tmpfs -o mode=0755,noexec,nosuid,nodev,strictatime tmpfs /newrun >/dev/null
     cp -a /run/* /newrun >/dev/null 2>&1
     mount --move /newrun /run
     rm -fr -- /newrun
@@ -72,7 +72,7 @@ fi
 
 if command -v kmod >/dev/null 2>/dev/null; then
     kmod static-nodes --format=tmpfiles 2>/dev/null | \
-        while read type file mode a a a majmin; do
+        while read type file mode a a a majmin || [ -n "$type" ]; do
             type=${type%\!}
             case $type in
                 d)
@@ -113,7 +113,7 @@ source_conf /etc/conf.d
 
 if getarg "rd.cmdline=ask"; then
     echo "Enter additional kernel command line parameter (end with ctrl-d or .)"
-    while read -p "> " line; do
+    while read -p "> " line || [ -n "$line" ]; do
         [ "$line" = "." ] && break
         echo "$line" >> /etc/cmdline.d/99-cmdline-ask.conf
     done
@@ -254,7 +254,7 @@ done
 
 {
     echo -n "Mounted root filesystem "
-    while read dev mp rest; do [ "$mp" = "$NEWROOT" ] && echo $dev; done < /proc/mounts
+    while read dev mp rest || [ -n "$dev" ]; do [ "$mp" = "$NEWROOT" ] && echo $dev; done < /proc/mounts
 } | vinfo
 
 # pre pivot scripts are sourced just before we doing cleanup and switch over

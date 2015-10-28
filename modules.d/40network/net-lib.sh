@@ -94,13 +94,13 @@ setup_net() {
     [ -e "/tmp/net.ifaces" ] && read IFACES < /tmp/net.ifaces
     [ -z "$IFACES" ] && IFACES="$netif"
     # run the scripts written by ifup
-    [ -e /tmp/net.$netif.gw ]            && . /tmp/net.$netif.gw
     [ -e /tmp/net.$netif.hostname ]      && . /tmp/net.$netif.hostname
     [ -e /tmp/net.$netif.override ]      && . /tmp/net.$netif.override
     [ -e /tmp/dhclient.$netif.dhcpopts ] && . /tmp/dhclient.$netif.dhcpopts
     # set up resolv.conf
     [ -e /tmp/net.$netif.resolv.conf ] && \
         cp -f /tmp/net.$netif.resolv.conf /etc/resolv.conf
+    [ -e /tmp/net.$netif.gw ]            && . /tmp/net.$netif.gw
 
     # add static route
     for _p in $(getargs rd.route); do
@@ -520,7 +520,7 @@ wait_for_ipv6_dad() {
     local cnt=0
     local li
     while [ $cnt -lt 500 ]; do
-        li=$(ip -6 addr show dev $1)
+        li=$(ip -6 addr show dev $1 scope link)
         strstr "$li" "tentative" || return 0
         sleep 0.1
         cnt=$(($cnt+1))
@@ -554,13 +554,18 @@ type hostname >/dev/null 2>&1 || \
 }
 
 iface_has_link() {
+    local cnt=0
     local interface="$1" flags=""
     [ -n "$interface" ] || return 2
     interface="/sys/class/net/$interface"
     [ -d "$interface" ] || return 2
     linkup "$1"
-    [ "$(cat $interface/carrier)" = 1 ] || return 1
-    # XXX Do we need to reset the flags here? anaconda never bothered..
+    while [ $cnt -lt 50 ]; do
+        [ "$(cat $interface/carrier)" = 1 ] && return 0
+        sleep 0.1
+        cnt=$(($cnt+1))
+    done
+    return 1
 }
 
 find_iface_with_link() {
