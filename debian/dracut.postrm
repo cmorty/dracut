@@ -8,6 +8,8 @@ case "$1" in
 	;;
 esac
 
+dpkg-divert --remove --rename /usr/sbin/update-initramfs
+
 #DEBHELPER#
 
 exit 0

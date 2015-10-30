@@ -1,0 +1,10 @@
+#! /bin/sh
+
+set -e
+
+# We must disable update-initramfs, because the kernel calls this directly
+dpkg-divert --rename --divert /usr/sbin/update-initramfs.orig /usr/sbin/update-initramfs
+
+#DEBHELPER#
+
+exit 0
