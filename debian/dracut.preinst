@@ -1,0 +1,10 @@
+#! /bin/sh
+
+set -e
+
+# We must disable building the init.rd by the initramfs-tools
+dpkg-divert --divert /etc/kernel/postinst.d/.initramfs-tools.distrib --rename /etc/kernel/postinst.d/initramfs-tools
+
+#DEBHELPER#
+
+exit 0

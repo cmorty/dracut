@@ -1,0 +1,9 @@
+#! /bin/sh
+
+set -e
+
+dpkg-divert --remove --rename /etc/kernel/postinst.d/initramfs-tools
+
+#DEBHELPER#
+
+exit 0
