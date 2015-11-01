@@ -8,7 +8,7 @@ case "$1" in
 	;;
 esac
 
-dpkg-divert --remove --rename /usr/sbin/update-initramfs
+dpkg-divert --remove --rename /etc/kernel/postinst.d/initramfs-tools
 
 #DEBHELPER#
 

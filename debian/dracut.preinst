@@ -2,8 +2,8 @@
 
 set -e
 
-# We must disable update-initramfs, because the kernel calls this directly
-dpkg-divert --rename --divert /usr/sbin/update-initramfs.orig /usr/sbin/update-initramfs
+# We must disable building the init.rd by the initramfs-tools
+dpkg-divert --rename /etc/kernel/postinst.d/initramfs-tools
 
 #DEBHELPER#
 
